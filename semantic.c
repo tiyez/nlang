@@ -14,10 +14,11 @@ int		analyze_code_flow (struct unit *unit, int flow_index, int scope_index) {
 		} break ;
 		case FlowType (if): {
 			if (analyze_expr (unit, flow->fif.expr, scope_index)) {
-				struct type	typestack[Max_Type_Depth], *typehead;
+				struct typestack	ctypestack, *typestack = &ctypestack;
 
-				if (make_typestack_from_expr (typestack, &typehead, flow->fif.expr)) {
-					if (is_type_implicitly_convertable_to_bool (typehead)) {
+				init_typestack (typestack);
+				if (make_typestack_from_expr (unit, typestack, flow->fif.expr)) {
+					if (is_type_implicitly_convertable_to_bool (get_typestack_head (typestack))) {
 						if (analyze_code_flow (unit, flow->fif.flow_body, scope_index)) {
 							if (flow->fif.else_body >= 0) {
 								result = analyze_code_flow (unit, flow->fif.else_body, scope_index);
@@ -41,10 +42,11 @@ int		analyze_code_flow (struct unit *unit, int flow_index, int scope_index) {
 		} break ;
 		case FlowType (while): {
 			if (analyze_expr (unit, flow->fwhile.expr, scope_index)) {
-				struct type	typestack[Max_Type_Depth], *typehead;
+				struct typestack	ctypestack, *typestack = &ctypestack;
 
-				if (make_typestack_from_expr (typestack, &typehead, flow->fwhile.expr)) {
-					if (is_type_implicitly_convertable_to_bool (typehead)) {
+				init_typestack (typestack);
+				if (make_typestack_from_expr (unit, typestack, flow->fwhile.expr)) {
+					if (is_type_implicitly_convertable_to_bool (get_typestack_head (typestack))) {
 						if (analyze_code_flow (unit, flow->fwhile.flow_body, scope_index)) {
 							result = 1;
 						} else {
@@ -64,10 +66,11 @@ int		analyze_code_flow (struct unit *unit, int flow_index, int scope_index) {
 		} break ;
 		case FlowType (dowhile): {
 			if (analyze_expr (unit, flow->dowhile.expr, scope_index)) {
-				struct type	typestack[Max_Type_Depth], *typehead;
+				struct typestack	ctypestack, *typestack = &ctypestack;
 
-				if (make_typestack_from_expr (unit, typestack, &typehead, flow->dowhile.expr)) {
-					if (is_type_implicitly_convertable_to_bool (typehead)) {
+				init_typestack (typestack);
+				if (make_typestack_from_expr (unit, typestack, flow->dowhile.expr)) {
+					if (is_type_implicitly_convertable_to_bool (get_typestack_head (typestack))) {
 						if (analyze_code_flow (unit, flow->dowhile.flow_body, scope_index)) {
 							result = 1;
 						} else {
@@ -145,10 +148,6 @@ int		analyze_decl_const (struct unit *unit, int decl_index) {
 	return (1);
 }
 
-int		qs_compare_strings (const void *l, const void *r) {
-	return (strcmp (*(const char **) l, *(const char **) r));
-}
-
 int		analyze_decl_func (struct unit *unit, int decl_index) {
 	int		result;
 	struct decl	*decl;
@@ -161,8 +160,8 @@ int		analyze_decl_func (struct unit *unit, int decl_index) {
 	Assert (type->kind == TypeKind (mod) && type->mod.kind == TypeMod (function));
 	Assert (type->mod.func.param_scope >= 0);
 	if (check_scope_declarations_for_name_uniqueness (unit, type->mod.func.param_scope)) {
-		Assert (decl->body >= 0);
-		result = analyze_code_scope (unit, decl->body);
+		Assert (decl->func.scope >= 0);
+		result = analyze_code_scope (unit, decl->func.scope);
 	} else {
 		Error ("redefinition in the function parameters");
 		result = 0;
@@ -170,23 +169,7 @@ int		analyze_decl_func (struct unit *unit, int decl_index) {
 	return (result);
 }
 
-int		analyze_decl_struct (struct unit *unit, int decl_index) {
-	return (0);
-}
-
-int		analyze_decl_union (struct unit *unit, int decl_index) {
-	return (0);
-}
-
-int		analyze_decl_stroke (struct unit *unit, int decl_index) {
-	return (0);
-}
-
-int		analyze_decl_enum (struct unit *unit, int decl_index) {
-	return (0);
-}
-
-int		analyze_decl_bitfield (struct unit *unit, int decl_index) {
+int		analyze_decl_tag (struct unit *unit, int decl_index) {
 	return (0);
 }
 //
@@ -208,11 +191,7 @@ int		analyze_unit_scope (struct unit *unit, int scope_index) {
 					case DeclKind (var): result = analyze_decl_var (unit, flow->decl.index);
 					case DeclKind (const): result = analyze_decl_const (unit, flow->decl.index);
 					case DeclKind (func): result = analyze_decl_func (unit, flow->decl.index);
-					case DeclKind (struct): result = analyze_decl_struct (unit, flow->decl.index);
-					case DeclKind (union): result = analyze_decl_union (unit, flow->decl.index);
-					case DeclKind (stroke): result = analyze_decl_stroke (unit, flow->decl.index);
-					case DeclKind (enum): result = analyze_decl_enum (unit, flow->decl.index);
-					case DeclKind (bitfield): result = analyze_decl_bitfield (unit, flow->decl.index);
+					case DeclKind (tag): result = analyze_decl_tag (unit, flow->decl.index);
 					default: Unreachable ();
 				}
 			} else {

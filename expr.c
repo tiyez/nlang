@@ -624,6 +624,13 @@ void	print_expr (struct unit *unit, int head_index, FILE *file) {
 			print_type (unit, head->typeinfo.type, file);
 			fprintf (file, "]");
 		} break ;
+		case ExprType (decl): {
+			struct decl	*decl;
+
+			decl = get_decl (unit, head->decl.index);
+			Assert (decl->kind != DeclKind (tag));
+			fprintf (file, "%s", decl->name);
+		} break ;
 		default: {
 			Error ("unknown %d %d", head->type, head_index);
 		} break ;

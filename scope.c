@@ -2,6 +2,7 @@
 
 
 void	init_scope (struct scope *scope) {
+	scope->tagtype = TagType (invalid);
 	scope->parent_scope = -1;
 	scope->decl_begin = -1;
 	scope->decl_last = -1;
@@ -30,11 +31,22 @@ int		make_scope (struct unit *unit, enum scopekind kind, int parent) {
 		scope = Push_Array (unit->scopes);
 		init_scope (scope);
 		scope->kind = kind;
+		scope->tagtype = TagType (invalid);
 		scope->parent_scope = parent;
 		scope->param_scope = -1;
 		index = Get_Element_Index (unit->scopes, scope);
 	} else {
 		index = -1;
+	}
+	return (index);
+}
+
+int		make_tag_scope (struct unit *unit, enum tagtype tagtype, int parent) {
+	int		index;
+
+	index = make_scope (unit, ScopeKind (tag), parent);
+	if (index >= 0) {
+		get_scope (unit, index)->tagtype = tagtype;
 	}
 	return (index);
 }
@@ -74,20 +86,6 @@ int		make_block_flow (struct unit *unit, int inner_scope) {
 	index = make_flow (unit, FlowType (block));
 	if (index >= 0) {
 		get_flow (unit, index)->block.scope = inner_scope;
-	}
-	return (index);
-}
-
-int		make_decl_block_flow (struct unit *unit, const char *name, int inner_scope) {
-	int		index;
-
-	index = make_flow (unit, FlowType (declblock));
-	if (index >= 0) {
-		struct flow	*flow;
-
-		flow = get_flow (unit, index);
-		flow->declblock.name = name;
-		flow->declblock.scope = inner_scope;
 	}
 	return (index);
 }
@@ -162,6 +160,10 @@ struct decl	*get_decl (struct unit *unit, int index) {
 	return (decl);
 }
 
+int		get_decl_index (struct unit *unit, struct decl *decl) {
+	return (Get_Element_Index (unit->decls, decl));
+}
+
 int		make_decl (struct unit *unit, int scope_index, const char *name, int type, enum declkind kind) {
 	int		index;
 
@@ -179,11 +181,76 @@ int		make_decl (struct unit *unit, int scope_index, const char *name, int type, 
 		decl->name = name;
 		decl->type = type;
 		decl->kind = kind;
-		decl->body = -1;
 		index = Get_Element_Index (unit->decls, decl);
 	} else {
 		Error ("cannot prepare decl array");
 		index = -1;
+	}
+	return (index);
+}
+
+int		make_var_decl (struct unit *unit, int scope_index, const char *name, int type) {
+	int		index;
+
+	Assert (type >= 0);
+	index = make_decl (unit, scope_index, name, type, DeclKind (var));
+	return (index);
+}
+
+int		make_const_decl (struct unit *unit, int scope_index, const char *name, int type, int expr) {
+	int		index;
+
+	index = make_decl (unit, scope_index, name, type, DeclKind (const));
+	if (index >= 0) {
+		get_decl (unit, index)->dconst.expr = expr;
+	}
+	return (index);
+}
+
+int		make_func_decl (struct unit *unit, int scope_index, const char *name, int type, int scope, int param_scope) {
+	int		index;
+
+	index = make_decl (unit, scope_index, name, type, DeclKind (func));
+	if (index >= 0) {
+		struct decl	*decl;
+
+		decl = get_decl (unit, index);
+		decl->func.scope = scope;
+		decl->func.param_scope = param_scope;
+	}
+	return (index);
+}
+
+int		make_tag_decl (struct unit *unit, int scope_index, const char *name, int type, enum tagtype tagtype, int scope) {
+	int		index;
+
+	index = make_decl (unit, scope_index, name, type, DeclKind (tag));
+	if (index >= 0) {
+		struct decl	*decl;
+
+		decl = get_decl (unit, index);
+		decl->tag.type = tagtype;
+		decl->tag.scope = scope;
+	}
+	return (index);
+}
+
+int		make_block_decl (struct unit *unit, int scope_index, const char *name, int scope) {
+	int		index;
+
+	index = make_decl (unit, scope_index, name, -1, DeclKind (block));
+	if (index >= 0) {
+		get_decl (unit, index)->block.scope = scope;
+	}
+	return (index);
+}
+
+int		make_enum_decl (struct unit *unit, int scope_index, const char *name, int expr) {
+	int		index;
+
+	index = make_decl (unit, scope_index, name, -1, DeclKind (enum));
+	if (index >= 0) {
+		get_decl (unit, index)->enumt.expr = expr;
 	}
 	return (index);
 }
@@ -314,7 +381,7 @@ int		parse_code_scope_flow (struct unit *unit, int scope_index, char **ptokens, 
 								int		decl;
 
 								*ptokens = next_token (*ptokens, 0);
-								decl = make_decl (unit, scope_index, name, type_index, DeclKind (var));
+								decl = make_var_decl (unit, scope_index, name, type_index);
 								if (decl >= 0) {
 									*out = make_decl_flow (unit, decl);
 									Assert (*out >= 0);
@@ -408,7 +475,7 @@ int		parse_code_scope_flow (struct unit *unit, int scope_index, char **ptokens, 
 	return (result);
 }
 
-int		parse_tag_decl_flow (struct unit *unit, enum declkind declkind, enum scopekind scopekind, int scope_index, char **ptokens, int *out) {
+int		parse_tag_decl_flow (struct unit *unit, enum tagtype tagtype, int scope_index, char **ptokens, int *out) {
 	int		result;
 
 	*ptokens = next_token (*ptokens, 0);
@@ -421,13 +488,12 @@ int		parse_tag_decl_flow (struct unit *unit, enum declkind declkind, enum scopek
 			int		scope;
 
 			*ptokens = next_token (*ptokens, 0);
-			scope = make_scope (unit, scopekind, scope_index);
+			scope = make_tag_scope (unit, tagtype, scope_index);
 			if (parse_scope (unit, scope, ptokens)) {
 				if (is_token (*ptokens, Token (punctuator), "}")) {
 					int		decl;
 
-					decl = make_decl (unit, scope_index, name, make_struct_type (unit, name), declkind);
-					get_decl (unit, decl)->body = scope;
+					decl = make_tag_decl (unit, scope_index, name, make_tag_type (unit, name, tagtype), tagtype, scope);
 					*out = make_decl_flow (unit, decl);
 					*ptokens = next_token (*ptokens, 0);
 					result = 1;
@@ -436,7 +502,7 @@ int		parse_tag_decl_flow (struct unit *unit, enum declkind declkind, enum scopek
 					result = 0;
 				}
 			} else {
-				Error ("cannot parse 'struct' body");
+				Error ("cannot parse %s tag body", g_tagname[tagtype]);
 				result = 0;
 			}
 		} else {
@@ -456,15 +522,15 @@ int		parse_unit_scope_flow (struct unit *unit, int scope_index, char **ptokens, 
 	*out = -1;
 	if ((*ptokens)[-1] == Token (identifier)) {
 		if (0 == strcmp (*ptokens, "struct")) {
-			result = parse_tag_decl_flow (unit, DeclKind (struct), ScopeKind (struct), scope_index, ptokens, out);
+			result = parse_tag_decl_flow (unit, TagType (struct), scope_index, ptokens, out);
 		} else if (0 == strcmp (*ptokens, "union")) {
-			result = parse_tag_decl_flow (unit, DeclKind (union), ScopeKind (union), scope_index, ptokens, out);
+			result = parse_tag_decl_flow (unit, TagType (union), scope_index, ptokens, out);
 		} else if (0 == strcmp (*ptokens, "stroke")) {
-			result = parse_tag_decl_flow (unit, DeclKind (stroke), ScopeKind (stroke), scope_index, ptokens, out);
+			result = parse_tag_decl_flow (unit, TagType (stroke), scope_index, ptokens, out);
 		} else if (0 == strcmp (*ptokens, "enum")) {
-			result = parse_tag_decl_flow (unit, DeclKind (enum), ScopeKind (enum), scope_index, ptokens, out);
+			result = parse_tag_decl_flow (unit, TagType (enum), scope_index, ptokens, out);
 		} else if (0 == strcmp (*ptokens, "bitfield")) {
-			result = parse_tag_decl_flow (unit, DeclKind (bitfield), ScopeKind (bitfield), scope_index, ptokens, out);
+			result = parse_tag_decl_flow (unit, TagType (bitfield), scope_index, ptokens, out);
 		} else {
 			const char	*name;
 			int			type_index;
@@ -481,7 +547,7 @@ int		parse_unit_scope_flow (struct unit *unit, int scope_index, char **ptokens, 
 							int		decl;
 							int		func_scope;
 
-							decl = make_decl (unit, scope_index, name, type_index, DeclKind (func));
+							decl = make_func_decl (unit, scope_index, name, type_index, -1, type->mod.func.param_scope);
 							*out = make_decl_flow (unit, decl);
 							*ptokens = next_token (*ptokens, 0);
 							func_scope = make_scope (unit, ScopeKind (func), scope_index);
@@ -489,7 +555,7 @@ int		parse_unit_scope_flow (struct unit *unit, int scope_index, char **ptokens, 
 							if (parse_scope (unit, func_scope, ptokens)) {
 								if (is_token (*ptokens, Token (punctuator), "}")) {
 									*ptokens = next_token (*ptokens, 0);
-									get_decl (unit, decl)->body = func_scope;
+									get_decl (unit, decl)->func.scope = func_scope;
 									result = 1;
 								} else {
 									Error ("unexpected token");
@@ -507,7 +573,7 @@ int		parse_unit_scope_flow (struct unit *unit, int scope_index, char **ptokens, 
 						int			decl;
 
 						*ptokens = next_token (*ptokens, 0);
-						decl = make_decl (unit, scope_index, name, type_index, DeclKind (var));
+						decl = make_var_decl (unit, scope_index, name, type_index);
 						*out = make_decl_flow (unit, decl);
 						result = 1;
 					} else {
@@ -529,7 +595,7 @@ int		parse_unit_scope_flow (struct unit *unit, int scope_index, char **ptokens, 
 	return (result);
 }
 
-int		parse_struct_scope_flow (struct unit *unit, int scope_index, char **ptokens, int *out) {
+int		parse_struct_tag_scope_flow (struct unit *unit, int scope_index, char **ptokens, int *out) {
 	int		result;
 
 	*out = -1;
@@ -555,11 +621,15 @@ int		parse_struct_scope_flow (struct unit *unit, int scope_index, char **ptokens
 				int		scope;
 
 				*ptokens = next_token (*ptokens, 0);
-				scope = make_scope (unit, ScopeKind (struct), scope_index);
+				scope = make_tag_scope (unit, TagType (struct), scope_index);
 				if (parse_scope (unit, scope, ptokens)) {
 					if (is_token (*ptokens, Token (punctuator), "}")) {
+						int		decl;
+
 						*ptokens = next_token (*ptokens, 0);
-						*out = make_decl_block_flow (unit, name, scope);
+						decl = make_block_decl (unit, scope_index, name, scope);
+						*out = make_decl_flow (unit, decl);
+						result = 1;
 					} else {
 						Error ("unexpected token");
 						result = 0;
@@ -576,7 +646,7 @@ int		parse_struct_scope_flow (struct unit *unit, int scope_index, char **ptokens
 						int		decl;
 
 						*ptokens = next_token (*ptokens, 0);
-						decl = make_decl (unit, scope_index, name, type_index, DeclKind (var));
+						decl = make_var_decl (unit, scope_index, name, type_index);
 						*out = make_decl_flow (unit, decl);
 						result = 1;
 					} else {
@@ -593,11 +663,15 @@ int		parse_struct_scope_flow (struct unit *unit, int scope_index, char **ptokens
 		int		scope;
 
 		*ptokens = next_token (*ptokens, 0);
-		scope = make_scope (unit, ScopeKind (struct), scope_index);
+		scope = make_tag_scope (unit, TagType (struct), scope_index);
 		if (parse_scope (unit, scope, ptokens)) {
 			if (is_token (*ptokens, Token (punctuator), "}")) {
+				int		decl;
+
 				*ptokens = next_token (*ptokens, 0);
-				*out = make_decl_block_flow (unit, 0, scope);
+				decl = make_block_decl (unit, scope_index, 0, scope);
+				*out = make_decl_flow (unit, decl);
+				result = 1;
 			} else {
 				Error ("unexpected token");
 				result = 0;
@@ -608,6 +682,73 @@ int		parse_struct_scope_flow (struct unit *unit, int scope_index, char **ptokens
 		}
 	} else {
 		result = 2;
+	}
+	return (result);
+}
+
+int		parse_enum_tag_scope_flow (struct unit *unit, int scope_index, char **ptokens, int *out) {
+	int		result;
+
+	*out = -1;
+	if ((*ptokens)[-1] == Token (identifier)) {
+		const char	*name;
+		int			expr;
+
+		name = *ptokens;
+		*ptokens = next_token (*ptokens, 0);
+		if (is_token (*ptokens, Token (punctuator), "=")) {
+			*ptokens = next_token (*ptokens, 0);
+			if (parse_expr (unit, ptokens, &expr)) {
+				if (expr >= 0) {
+					if (is_token (*ptokens, Token (punctuator), ";")) {
+						*ptokens = next_token (*ptokens, 0);
+						result = 1;
+					} else {
+						Error ("unexpected token");
+						result = 0;
+					}
+				} else {
+					Error ("empty expression");
+					result = 0;
+				}
+			} else {
+				Error ("cannot parse enum value");
+				result = 0;
+			}
+		} else if (is_token (*ptokens, Token (punctuator), ";")) {
+			*ptokens = next_token (*ptokens, 0);
+			expr = -1;
+			result = 1;
+		} else {
+			Error ("unexpected token");
+			result = 0;
+		}
+		if (result) {
+			int		decl;
+
+			decl = make_enum_decl (unit, scope_index, name, expr);
+			*out = make_decl_flow (unit, decl);
+		}
+	} else {
+		result = 2;
+	}
+	return (result);
+}
+
+int		parse_tag_scope_flow (struct unit *unit, int scope_index, char **ptokens, enum tagtype tagtype, int *out) {
+	int		result;
+
+	switch (tagtype) {
+		case TagType (struct):
+		case TagType (union):
+		case TagType (stroke): {
+			result = parse_struct_tag_scope_flow (unit, scope_index, ptokens, out);
+		} break ;
+		case TagType (enum):
+		case TagType (bitfield): {
+			result = parse_enum_tag_scope_flow (unit, scope_index, ptokens, out);
+		} break ;
+		default: Unreachable ();
 	}
 	return (result);
 }
@@ -625,11 +766,8 @@ int		parse_scope (struct unit *unit, int scope_index, char **ptokens) {
 			case ScopeKind (unit): result = parse_unit_scope_flow (unit, scope_index, ptokens, &flow_index); break ;
 			case ScopeKind (func):
 			case ScopeKind (code): result = parse_code_scope_flow (unit, scope_index, ptokens, &flow_index); break ;
-			case ScopeKind (stroke):
-			case ScopeKind (union):
-			case ScopeKind (struct): result = parse_struct_scope_flow (unit, scope_index, ptokens, &flow_index); break ;
-			default: Assert (0);
-			// default: Unreachable ();
+			case ScopeKind (tag): result = parse_tag_scope_flow (unit, scope_index, ptokens, get_scope (unit, scope_index)->tagtype, &flow_index); break ;
+			default: Unreachable ();
 		}
 		if (result == 1) {
 			add_flow_to_scope (unit, scope_index, flow_index);
@@ -651,7 +789,7 @@ void	print_scope_flow (struct unit *unit, int flow_index, int indent, enum scope
 			decl = get_decl (unit, flow->decl.index);
 			switch (decl->kind) {
 				case DeclKind (var): {
-					if (scopekind == ScopeKind (code)) {
+					if (scopekind == ScopeKind (code) || scopekind == ScopeKind (func)) {
 						fprintf (file, "%*.svar %s ", indent * 4, "", decl->name);
 					} else {
 						fprintf (file, "%*.s%s ", indent * 4, "", decl->name);
@@ -661,8 +799,8 @@ void	print_scope_flow (struct unit *unit, int flow_index, int indent, enum scope
 				} break ;
 				case DeclKind (const): {
 					fprintf (file, "%*.sconst %s = ", indent * 4, "", decl->name);
-					Assert (decl->body >= 0);
-					print_expr (unit, decl->body, file);
+					Assert (decl->dconst.expr >= 0);
+					print_expr (unit, decl->dconst.expr, file);
 					fprintf (file, ";\n");
 				} break ;
 				case DeclKind (func): {
@@ -670,44 +808,50 @@ void	print_scope_flow (struct unit *unit, int flow_index, int indent, enum scope
 					fprintf (file, "%*.s%s ", indent * 4, "", decl->name);
 					print_type (unit, decl->type, file);
 					fprintf (file, " {\n");
-					Assert (decl->body >= 0);
-					print_scope (unit, decl->body, indent + 1, file);
+					Assert (decl->func.scope >= 0);
+					print_scope (unit, decl->func.scope, indent + 1, file);
 					fprintf (file, "%*.s}\n", indent * 4, "");
 				} break ;
-				case DeclKind (union):
-				case DeclKind (stroke):
-				case DeclKind (struct): {
+				case DeclKind (tag): {
 					Assert (scopekind == ScopeKind (unit));
-					if (decl->kind == DeclKind (struct)) {
+					if (decl->tag.type == TagType (struct)) {
 						fprintf (file, "%*.sstruct %s {\n", indent * 4, "", decl->name);
-					} else if (decl->kind == DeclKind (union)) {
+					} else if (decl->tag.type == TagType (union)) {
 						fprintf (file, "%*.sunion %s {\n", indent * 4, "", decl->name);
-					} else if (decl->kind == DeclKind (stroke)) {
+					} else if (decl->tag.type == TagType (stroke)) {
 						fprintf (file, "%*.sstroke %s {\n", indent * 4, "", decl->name);
-					} else {
-						Assert (0);
-					}
-					Assert (decl->body >= 0);
-					print_scope (unit, decl->body, indent + 1, file);
-					fprintf (file, "%*.s}\n", indent * 4, "");
-				} break ;
-				case DeclKind (bitfield):
-				case DeclKind (enum): {
-					Assert (scopekind == ScopeKind (unit));
-					if (decl->kind == DeclKind (enum)) {
+					} else if (decl->tag.type == TagType (enum)) {
 						fprintf (file, "%*.senum %s {\n", indent * 4, "", decl->name);
-					} else if (decl->kind == DeclKind (bitfield)) {
+					} else if (decl->tag.type == TagType (bitfield)) {
 						fprintf (file, "%*.sbitfield %s {\n", indent * 4, "", decl->name);
 					} else {
-						Assert (0);
+						Unreachable ();
 					}
-					Assert (decl->body >= 0);
-					print_scope (unit, decl->body, indent + 1, file);
+					Assert (decl->tag.scope >= 0);
+					print_scope (unit, decl->tag.scope, indent + 1, file);
 					fprintf (file, "%*.s}\n", indent * 4, "");
+				} break ;
+				case DeclKind (block): {
+					if (decl->name) {
+						fprintf (file, "%*.s%s {\n", indent * 4, "", decl->name);
+					} else {
+						fprintf (file, "%*.s{\n", indent * 4, "");
+					}
+					print_scope (unit, decl->block.scope, indent + 1, file);
+					fprintf (file, "%*.s}\n", indent * 4, "");
+				} break ;
+				case DeclKind (enum): {
+					if (decl->enumt.expr >= 0) {
+						fprintf (file, "%*.s%s = ", indent * 4, "", decl->name);
+						print_expr (unit, decl->enumt.expr, file);
+						fprintf (file, ";\n");
+					} else {
+						fprintf (file, "%*.s%s;\n", indent * 4, "", decl->name);
+					}
 				} break ;
 				default: {
 					Error ("unknown decl kind %d", decl->kind);
-					Assert (0);
+					Unreachable ();
 				} break ;
 			}
 		} break ;
@@ -746,15 +890,6 @@ void	print_scope_flow (struct unit *unit, int flow_index, int indent, enum scope
 			print_expr (unit, flow->dowhile.expr, file);
 			fprintf (file, ";\n");
 		} break ;
-		case FlowType (declblock): {
-			if (flow->declblock.name) {
-				fprintf (file, "%*.s%s {\n", indent * 4, "", flow->declblock.name);
-			} else {
-				fprintf (file, "%*.s{\n", indent * 4, "");
-			}
-			print_scope (unit, flow->declblock.scope, indent + 1, file);
-			fprintf (file, "%*.s}\n", indent * 4, "");
-		} break ;
 		default: {
 			Error ("unknown flow type %d", flow->type);
 		} break ;
@@ -776,7 +911,11 @@ void	print_scope (struct unit *unit, int scope_index, int indent, FILE *file) {
 	}
 }
 
-int		check_scope_declarations_for_name_uniqueness (struct unit *unit, int scope_index) {
+int		qs_compare_strings (const void *l, const void *r) {
+	return (strcmp (*(const char **) l, *(const char **) r));
+}
+
+int		check_scope_tag_declarations_for_name_uniqueness (struct unit *unit, int scope_index, enum tagtype tagtype) {
 	int				result;
 	struct scope	*scope;
 	struct decl		*decl;
@@ -790,8 +929,47 @@ int		check_scope_declarations_for_name_uniqueness (struct unit *unit, int scope_
 		decl = get_decl (unit, scope->decl_begin);
 		do {
 			Assert (names_count < Array_Count (names));
-			names[names_count] = decl->name;
-			names_count += 1;
+			if (decl->kind == DeclKind (tag) && decl->tag.type == tagtype) {
+				names[names_count] = decl->name;
+				names_count += 1;
+			}
+			decl = decl->next >= 0 ? get_decl (unit, decl->next) : 0;
+		} while (decl);
+		qsort ((char *) names, names_count, sizeof *names, qs_compare_strings);
+		index = 0;
+		while (index < names_count - 1 && 0 != strcmp (names[index], names[index + 1])) {
+			index += 1;
+		}
+		if (index >= names_count - 1) {
+			result = 1;
+		} else {
+			Error ("redefinition of %s tag '%s'", g_tagname[tagtype], names[index]);
+			result = 0;
+		}
+	} else {
+		result = 1;
+	}
+	return (result);
+}
+
+int		check_scope_ordinary_declarations_for_name_uniqueness (struct unit *unit, int scope_index) {
+	int				result;
+	struct scope	*scope;
+	struct decl		*decl;
+	int				names_count = 0;
+	const char		*names[2 * 1024];
+
+	scope = get_scope (unit, scope_index);
+	if (scope->decl_begin >= 0) {
+		int		index;
+
+		decl = get_decl (unit, scope->decl_begin);
+		do {
+			Assert (names_count < Array_Count (names));
+			if (decl->kind != DeclKind (tag)) {
+				names[names_count] = decl->name;
+				names_count += 1;
+			}
 			decl = decl->next >= 0 ? get_decl (unit, decl->next) : 0;
 		} while (decl);
 		if (scope->param_scope >= 0) {
@@ -819,6 +997,24 @@ int		check_scope_declarations_for_name_uniqueness (struct unit *unit, int scope_
 		}
 	} else {
 		result = 1;
+	}
+	return (result);
+}
+
+int		check_scope_declarations_for_name_uniqueness (struct unit *unit, int scope_index) {
+	int		result;
+	struct scope	*scope;
+
+	scope = get_scope (unit, scope_index);
+	if (scope->kind == ScopeKind (unit)) {
+		result = check_scope_tag_declarations_for_name_uniqueness (unit, scope_index, TagType (struct)) &&
+				check_scope_tag_declarations_for_name_uniqueness (unit, scope_index, TagType (union)) &&
+				check_scope_tag_declarations_for_name_uniqueness (unit, scope_index, TagType (stroke)) &&
+				check_scope_tag_declarations_for_name_uniqueness (unit, scope_index, TagType (enum)) &&
+				check_scope_tag_declarations_for_name_uniqueness (unit, scope_index, TagType (bitfield)) &&
+				check_scope_ordinary_declarations_for_name_uniqueness (unit, scope_index);
+	} else {
+		result = check_scope_ordinary_declarations_for_name_uniqueness (unit, scope_index);
 	}
 	return (result);
 }

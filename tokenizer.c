@@ -48,6 +48,9 @@
 #ifndef Tokenizer__skip_newline
 #	define Tokenizer__skip_newline 0
 #endif
+#ifndef Tokenizer__no_line_directives
+#	define Tokenizer__no_line_directives 0
+#endif
 /* end parameters */
 
 struct tokenizer {
@@ -984,7 +987,7 @@ void	print_tokens_until (const char *tokens, int with_lines, const char *line_pr
 					tokens = next;
 					next = next_const_token (next, 0);
 				}
-				if (!g_no_line_directives) {
+				if (!g_no_line_directives && !(Tokenizer__no_line_directives)) {
 					fprintf (file, "\n%s", line_prefix);
 					if (with_lines) {
 						fprintf (file, "%*d|", 4, pos->line);
@@ -1010,6 +1013,7 @@ void	print_tokens_until (const char *tokens, int with_lines, const char *line_pr
 			const char	*next;
 			int			should_print = 1;
 
+			Debug ("HERE");
 			next = next_const_token (tokens, 0);
 			if (next[-1]) {
 				if (next[-1] && next[-1] == Token (identifier) && 0 == strcmp (next, "line")) {

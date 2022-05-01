@@ -20,6 +20,7 @@ char	*own_stpcpy (char *restrict dest, const char *restrict source) {
 #define Tokenizer__Is_Preprocessor 0
 #define Tokenizer__Is_Trigraph 0
 #define Tokenizer__skip_newline 1
+#define Tokenizer__no_line_directives 1
 #define Tokenizer__stpcpy own_stpcpy
 #include "tokenizer.c"
 
@@ -104,10 +105,10 @@ const char	*get_basictype_name (enum basictype type) {
 #define TypeKind(name) TypeKind_##name
 enum typekind {
 	TypeKind (basic),
-	TypeKind (struct),
-	TypeKind (enum),
+	TypeKind (tag),
 	TypeKind (mod),
 	TypeKind (typeof),
+	TypeKind (decl),
 };
 
 #define TypeMod(name) TypeMod_##name
@@ -117,26 +118,41 @@ enum typemod {
 	TypeMod (function),
 };
 
+#define TagType(name) TagType_##name
+enum tagtype {
+	TagType (invalid),
+	TagType (struct),
+	TagType (union),
+	TagType (stroke),
+	TagType (enum),
+	TagType (bitfield),
+};
+
+const char	*g_tagname[] = {
+	"invalid", "struct", "union", "stroke", "enum", "bitfield",
+};
+
 struct type_basic {
 	enum basictype	type;
 	uint			is_const : 1;
 	uint			is_volatile : 1;
 };
 
-struct type_struct {
-	const char	*name;
-	uint		is_const : 1;
-	uint		is_volatile : 1;
-};
-
-struct type_enum {
-	const char	*name;
-	uint		is_const : 1;
-	uint		is_volatile : 1;
+struct type_tag {
+	enum tagtype	type;
+	const char		*name;
+	uint			is_const : 1;
+	uint			is_volatile : 1;
 };
 
 struct type_typeof {
 	int		expr;
+	uint	is_const : 1;
+	uint	is_volatile : 1;
+};
+
+struct type_decl {
+	int		index;
 	uint	is_const : 1;
 	uint	is_volatile : 1;
 };
@@ -175,10 +191,10 @@ struct type {
 	enum typekind	kind;
 	union {
 		struct type_basic	basic;
-		struct type_struct	structt;
-		struct type_enum	enumt;
+		struct type_tag		tag;
 		struct type_mod		mod;
 		struct type_typeof	typeof;
+		struct type_decl	decl;
 	};
 };
 
@@ -187,19 +203,46 @@ enum declkind {
 	DeclKind (var),
 	DeclKind (const),
 	DeclKind (func),
-	DeclKind (struct),
-	DeclKind (union),
-	DeclKind (stroke),
+	DeclKind (tag),
+	DeclKind (block),
 	DeclKind (enum),
-	DeclKind (bitfield),
+};
+
+struct decl_const {
+	int		expr;
+};
+
+struct decl_func {
+	int		param_scope;
+	int		scope;
+};
+
+struct decl_tag {
+	enum tagtype	type;
+	int				scope;
+};
+
+struct decl_block {
+	int		scope;
+};
+
+struct decl_enum {
+	int		expr;
 };
 
 struct decl {
 	int				next;
 	const char		*name;
 	int				type;
+	uint			is_in_process : 1;
 	enum declkind	kind;
-	int				body;
+	union {
+		struct decl_const	dconst;
+		struct decl_func	func;
+		struct decl_tag		tag;
+		struct decl_block	block;
+		struct decl_enum	enumt;
+	};
 };
 
 #define FlowType(name) FlowType_##name
@@ -210,7 +253,6 @@ enum flowtype {
 	FlowType (if),
 	FlowType (while),
 	FlowType (dowhile),
-	FlowType (declblock),
 };
 
 struct flow_decl {
@@ -241,11 +283,6 @@ struct flow_dowhile {
 	int		flow_body;
 };
 
-struct flow_declblock {
-	const char	*name;
-	int			scope;
-};
-
 struct flow {
 	int				next;
 	enum flowtype	type;
@@ -256,7 +293,6 @@ struct flow {
 		struct flow_if			fif;
 		struct flow_while		fwhile;
 		struct flow_dowhile		dowhile;
-		struct flow_declblock	declblock;
 	};
 };
 
@@ -265,15 +301,13 @@ enum scopekind {
 	ScopeKind (unit),
 	ScopeKind (func),
 	ScopeKind (code),
-	ScopeKind (struct),
-	ScopeKind (union),
-	ScopeKind (stroke),
-	ScopeKind (enum),
-	ScopeKind (bitfield),
+	ScopeKind (tag),
+	ScopeKind (param),
 };
 
 struct scope {
 	enum scopekind	kind;
+	enum tagtype	tagtype;
 	int				parent_scope;
 	int				param_scope;
 	int				decl_begin;
@@ -288,6 +322,7 @@ enum exprtype {
 	ExprType (op),
 	ExprType (constant),
 	ExprType (identifier),
+	ExprType (decl),
 	ExprType (compound),
 	ExprType (funcparam),
 	ExprType (typeinfo),
@@ -380,12 +415,17 @@ struct exprtypeinfo {
 	int		type;
 };
 
+struct exprdecl {
+	int		index;
+};
+
 struct expr {
 	enum exprtype	type;
 	union {
 		struct exprop			op;
 		struct expr_constant	constant;
 		const char				*identifier;
+		struct exprdecl			decl;
 		void					*compound;
 		struct exprfuncparam	funcparam;
 		struct exprtypeinfo		typeinfo;
@@ -401,6 +441,7 @@ struct unit {
 	struct scope	*scopes;
 };
 
+int		make_scope (struct unit *unit, enum scopekind kind, int parent);
 struct scope	*get_scope (struct unit *unit, int scope_index);
 struct decl	*get_decl (struct unit *unit, int index);
 void	print_type (struct unit *unit, int head, FILE *file);
@@ -409,7 +450,8 @@ void	print_type (struct unit *unit, int head, FILE *file);
 #include "expr.c"
 #include "type.c"
 #include "scope.c"
-#include "semantic.c"
+// #include "semantic.c"
+#include "link.c"
 
 void	init_unit (struct unit *unit) {
 	unit->root_scope = make_scope (unit, ScopeKind (unit), -1);
@@ -516,6 +558,12 @@ int		main () {
 	int		head = -1;
 	if (parse_scope (unit, unit->root_scope, &tokens)) {
 		print_scope (unit, unit->root_scope, 0, stdout);
+		if (link_unit (unit)) {
+			Debug ("-------------------");
+			print_scope (unit, unit->root_scope, 0, stdout);
+		} else {
+			Error ("cannot link unit");
+		}
 	} else {
 		Error ("cannot parse code scope");
 	}

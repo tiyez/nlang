@@ -58,7 +58,8 @@ do {fprintf (stderr, "%s:%d:%d: Error: ", filename, line, column);\
 
 #include <assert.h>
 #define Assert(expr) assert (expr)
-#define Unreachable() __assume (0)
+#define Unreachable() Assert (0)
+// #define Unreachable() __assume (0)
 
 #define Member_Offset(type, memb) (&(((type *)0)->memb))
 #define Array_Count(arr) (sizeof (arr) / sizeof ((arr)[0]))

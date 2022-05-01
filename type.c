@@ -98,31 +98,16 @@ int		make_basic_type (struct unit *unit, enum basictype basictype) {
 	return (index);
 }
 
-int		make_struct_type (struct unit *unit, const char *name) {
+int		make_tag_type (struct unit *unit, const char *name, enum tagtype tagtype) {
 	int		index;
 
 	if (Prepare_Array (unit->types, 1)) {
 		struct type	*type;
 
 		type = Push_Array (unit->types);
-		type->kind = TypeKind (struct);
-		type->structt.name = name;
-		index = Get_Element_Index (unit->types, type);
-	} else {
-		index = -1;
-	}
-	return (index);
-}
-
-int		make_enum_type (struct unit *unit, const char *name) {
-	int		index;
-
-	if (Prepare_Array (unit->types, 1)) {
-		struct type	*type;
-
-		type = Push_Array (unit->types);
-		type->kind = TypeKind (enum);
-		type->enumt.name = name;
+		type->kind = TypeKind (tag);
+		type->tag.type = tagtype;
+		type->tag.name = name;
 		index = Get_Element_Index (unit->types, type);
 	} else {
 		index = -1;
@@ -139,6 +124,22 @@ int		make_typeof_type (struct unit *unit, int expr_index) {
 		type = Push_Array (unit->types);
 		type->kind = TypeKind (typeof);
 		type->typeof.expr = expr_index;
+		index = Get_Element_Index (unit->types, type);
+	} else {
+		index = -1;
+	}
+	return (index);
+}
+
+int		make_decl_type (struct unit *unit, int decl_index) {
+	int		index;
+
+	if (Prepare_Array (unit->types, 1)) {
+		struct type	*type;
+
+		type = Push_Array (unit->types);
+		type->kind = TypeKind (decl);
+		type->decl.index = decl_index;
 		index = Get_Element_Index (unit->types, type);
 	} else {
 		index = -1;
@@ -214,7 +215,7 @@ int		parse_type_rec (struct unit *unit, char **ptokens, int *out, struct typesta
 			if (state->is_post_basic) {
 				int				scope_index;
 
-				scope_index = make_scope (unit);
+				scope_index = make_scope (unit, ScopeKind (param), -1);
 				*out = make_function_type (unit, *out, scope_index);
 				/* function */
 				result = 1;
@@ -306,14 +307,32 @@ int		parse_type_rec (struct unit *unit, char **ptokens, int *out, struct typesta
 				if (0 == strcmp (*ptokens, "struct")) {
 					*ptokens = next_token (*ptokens, 0);
 					Assert ((*ptokens)[-1] == Token (identifier));
-					*out = make_struct_type (unit, *ptokens);
-					get_type (unit, *out)->structt.is_const = state->is_const;
+					*out = make_tag_type (unit, *ptokens, TagType (struct));
+					get_type (unit, *out)->tag.is_const = state->is_const;
 					result = 1;
 				} else if (0 == strcmp (*ptokens, "enum")) {
 					*ptokens = next_token (*ptokens, 0);
 					Assert ((*ptokens)[-1] == Token (identifier));
-					*out = make_enum_type (unit, *ptokens);
-					get_type (unit, *out)->enumt.is_const = state->is_const;
+					*out = make_tag_type (unit, *ptokens, TagType (enum));
+					get_type (unit, *out)->tag.is_const = state->is_const;
+					result = 1;
+				} else if (0 == strcmp (*ptokens, "union")) {
+					*ptokens = next_token (*ptokens, 0);
+					Assert ((*ptokens)[-1] == Token (identifier));
+					*out = make_tag_type (unit, *ptokens, TagType (union));
+					get_type (unit, *out)->tag.is_const = state->is_const;
+					result = 1;
+				} else if (0 == strcmp (*ptokens, "stroke")) {
+					*ptokens = next_token (*ptokens, 0);
+					Assert ((*ptokens)[-1] == Token (identifier));
+					*out = make_tag_type (unit, *ptokens, TagType (stroke));
+					get_type (unit, *out)->tag.is_const = state->is_const;
+					result = 1;
+				} else if (0 == strcmp (*ptokens, "bitfield")) {
+					*ptokens = next_token (*ptokens, 0);
+					Assert ((*ptokens)[-1] == Token (identifier));
+					*out = make_tag_type (unit, *ptokens, TagType (bitfield));
+					get_type (unit, *out)->tag.is_const = state->is_const;
 					result = 1;
 				} else if (is_basictype (*ptokens, &basictype)) {
 					*out = make_basic_type (unit, basictype);
@@ -364,17 +383,23 @@ void	print_type (struct unit *unit, int head, FILE *file) {
 			}
 			fprintf (file, "%s", get_basictype_name (type->basic.type));
 		} break ;
-		case TypeKind (struct): {
-			if (type->structt.is_const) {
+		case TypeKind (tag): {
+			if (type->tag.is_const) {
 				fprintf (file, "const ");
 			}
-			fprintf (file, "struct %s", type->structt.name);
-		} break ;
-		case TypeKind (enum): {
-			if (type->enumt.is_const) {
-				fprintf (file, "const ");
+			if (type->tag.type == TagType (struct)) {
+				fprintf (file, "struct %s", type->tag.name);
+			} else if (type->tag.type == TagType (enum)) {
+				fprintf (file, "enum %s", type->tag.name);
+			} else if (type->tag.type == TagType (union)) {
+				fprintf (file, "union %s", type->tag.name);
+			} else if (type->tag.type == TagType (stroke)) {
+				fprintf (file, "stroke %s", type->tag.name);
+			} else if (type->tag.type == TagType (bitfield)) {
+				fprintf (file, "bitfield %s", type->tag.name);
+			} else {
+				Unreachable ();
 			}
-			fprintf (file, "enum %s", type->enumt.name);
 		} break ;
 		case TypeKind (typeof): {
 			if (type->typeof.is_const) {
@@ -386,6 +411,12 @@ void	print_type (struct unit *unit, int head, FILE *file) {
 			} else {
 				fprintf (file, "(typeof ())");
 			}
+		} break ;
+		case TypeKind (decl): {
+			struct decl	*decl;
+
+			decl = get_decl (unit, type->decl.index);
+			print_type (unit, decl->type, file);
 		} break ;
 		case TypeKind (mod): {
 			switch (type->mod.kind) {
@@ -448,6 +479,7 @@ void	print_type (struct unit *unit, int head, FILE *file) {
 	}
 }
 
+/*
 struct typestack {
 	struct type	types[Max_Type_Depth];
 	int			types_count;
@@ -467,6 +499,10 @@ struct type	*get_typestack_head (struct typestack *typestack) {
 	return (get_typestack_type (typestack, typestack->head));
 }
 
+void	empty_typestack (struct typestack *typestack) {
+	init_typestack (typestack);
+}
+
 int		push_typestack (struct typestack *typestack, struct type *type) {
 	int		result;
 
@@ -479,11 +515,11 @@ int		push_typestack (struct typestack *typestack, struct type *type) {
 		result = 1;
 	} else {
 		Assert (type->kind == TypeKind (mod));
-		Assert (typestack->types_count > 0 && typestack->types_count < Type_Max_Depth);
+		Assert (typestack->types_count > 0 && typestack->types_count < Max_Type_Depth);
 		typestack->types[typestack->types_count] = *type;
 		type = typestack->types + typestack->types_count;
 		switch (type->mod.kind) {
-			case TypeMod (pointer): type->mod.pointer.type = typestack->head; break ;
+			case TypeMod (pointer): type->mod.ptr.type = typestack->head; break ;
 			case TypeMod (function): type->mod.func.type = typestack->head; break ;
 			case TypeMod (array): type->mod.array.type = typestack->head; break ;
 			default: Unreachable ();
@@ -524,7 +560,7 @@ int		make_typestack_from_expr (struct unit *unit, struct typestack *typestack, i
 
 				} break ;
 				default: {
-					if (is_unary_expr (expr)) {
+					if (is_expr_unary (expr)) {
 						if (make_typestack_from_expr (unit, typestack, expr->op.forward)) {
 							switch (expr->op.type) {
 								case OpType (unary_plus):
@@ -581,7 +617,7 @@ int		make_typestack_from_expr (struct unit *unit, struct typestack *typestack, i
 
 										forward = head->mod.array.type;
 										head->mod.kind = TypeMod (pointer);
-										head->mod.pointer.type = forward;
+										head->mod.ptr.type = forward;
 									} else {
 										struct type		ptrtype = {0};
 
@@ -609,8 +645,9 @@ int		make_typestack_from_expr (struct unit *unit, struct typestack *typestack, i
 			}
 		} break ;
 	}
+	return (result);
 }
-
+*/
 
 
 
