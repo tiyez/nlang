@@ -1,4 +1,8 @@
 
+/*
+	TODO: proper self reference check
+*/
+
 
 int		g_link_decl_index;
 
@@ -65,9 +69,9 @@ int		find_decl_tag (struct unit *unit, int scope_index, const char *name, enum t
 	return (decl_index);
 }
 
-int		link_type (struct unit *unit, int scope_index, int type_index);
+int		link_type (struct unit *unit, int scope_index, int type_index, int is_selfref_check);
 
-int		link_expr (struct unit *unit, int scope_index, int expr_index) {
+int		link_expr (struct unit *unit, int scope_index, int expr_index, int is_selfref_check) {
 	int		result;
 	struct expr	*expr;
 
@@ -76,9 +80,9 @@ int		link_expr (struct unit *unit, int scope_index, int expr_index) {
 		case ExprType (op): {
 			switch (expr->op.type) {
 				case OpType (function_call): {
-					if (link_expr (unit, scope_index, expr->op.forward)) {
+					if (link_expr (unit, scope_index, expr->op.forward, is_selfref_check)) {
 						if (expr->op.backward >= 0) {
-							result = link_expr (unit, scope_index, expr->op.backward);
+							result = link_expr (unit, scope_index, expr->op.backward, is_selfref_check);
 						} else {
 							result = 1;
 						}
@@ -87,25 +91,30 @@ int		link_expr (struct unit *unit, int scope_index, int expr_index) {
 					}
 				} break ;
 				case OpType (array_subscript): {
-					if (link_expr (unit, scope_index, expr->op.forward)) {
-						result = link_expr (unit, scope_index, expr->op.backward);
+					if (link_expr (unit, scope_index, expr->op.forward, is_selfref_check)) {
+						result = link_expr (unit, scope_index, expr->op.backward, is_selfref_check);
 					} else {
 						result = 0;
 					}
 				} break ;
 				case OpType (cast): {
-					if (link_expr (unit, scope_index, expr->op.forward)) {
-						result = link_type (unit, scope_index, expr->op.backward);
+					if (link_expr (unit, scope_index, expr->op.forward, is_selfref_check)) {
+						result = link_type (unit, scope_index, expr->op.backward, 1);
 					} else {
 						result = 0;
 					}
 				} break ;
 				default: {
 					if (is_expr_unary (expr)) {
-						result = link_expr (unit, scope_index, expr->op.forward);
+						if (expr->op.type == OpType (address_of)) {
+							is_selfref_check = 0;
+						} else if (expr->op.type == OpType (group)) {
+							is_selfref_check = 1;
+						}
+						result = link_expr (unit, scope_index, expr->op.forward, is_selfref_check);
 					} else {
-						if (link_expr (unit, scope_index, expr->op.backward)) {
-							result = link_expr (unit, scope_index, expr->op.forward);
+						if (link_expr (unit, scope_index, expr->op.backward, is_selfref_check)) {
+							result = link_expr (unit, scope_index, expr->op.forward, is_selfref_check);
 						} else {
 							result = 0;
 						}
@@ -114,9 +123,9 @@ int		link_expr (struct unit *unit, int scope_index, int expr_index) {
 			}
 		} break ;
 		case ExprType (funcparam): {
-			if (link_expr (unit, scope_index, expr->funcparam.expr)) {
+			if (link_expr (unit, scope_index, expr->funcparam.expr, is_selfref_check)) {
 				if (expr->funcparam.next >= 0) {
-					result = link_expr (unit, scope_index, expr->funcparam.next);
+					result = link_expr (unit, scope_index, expr->funcparam.next, is_selfref_check);
 				} else {
 					result = 1;
 				}
@@ -129,27 +138,41 @@ int		link_expr (struct unit *unit, int scope_index, int expr_index) {
 			result = 1;
 		} break ;
 		case ExprType (identifier): {
-			int		decl;
+			int		decl_index;
 
-			decl = find_ordinary_decl (unit, scope_index, expr->identifier);
-			if (decl >= 0) {
-				expr->type = ExprType (decl);
-				expr->decl.index = decl;
-				result = 1;
+			decl_index = find_ordinary_decl (unit, scope_index, expr->identifier);
+			if (decl_index >= 0) {
+				if (is_selfref_check) {
+					struct decl	*decl;
+
+					decl = get_decl (unit, decl_index);
+					if (decl->is_in_process == 0) {
+						expr->type = ExprType (decl);
+						expr->decl.index = decl_index;
+						result = 1;
+					} else {
+						Error ("self referencing declaration '%s'", decl->name);
+						result = 0;
+					}
+				} else {
+					expr->type = ExprType (decl);
+					expr->decl.index = decl_index;
+					result = 1;
+				}
 			} else {
 				Error ("undeclared identifier '%s'", expr->identifier);
 				result = 0;
 			}
 		} break ;
 		case ExprType (typeinfo): {
-			result = link_type (unit, scope_index, expr->typeinfo.type);
+			result = link_type (unit, scope_index, expr->typeinfo.type, 1);
 		} break ;
 		default: Unreachable ();
 	}
 	return (result);
 }
 
-int		link_type (struct unit *unit, int scope_index, int type_index) {
+int		link_type (struct unit *unit, int scope_index, int type_index, int is_selfref_check) {
 	int		result;
 	struct type	*type;
 
@@ -157,9 +180,9 @@ int		link_type (struct unit *unit, int scope_index, int type_index) {
 	switch (type->kind) {
 		case TypeKind (mod): {
 			switch (type->mod.kind) {
-				case TypeMod (pointer): result = link_type (unit, scope_index, type->mod.ptr.type); break ;
-				case TypeMod (function): result = link_type (unit, scope_index, type->mod.func.type); break ;
-				case TypeMod (array): result = link_type (unit, scope_index, type->mod.array.type); break ;
+				case TypeMod (pointer): result = link_type (unit, scope_index, type->mod.ptr.type, 0); break ;
+				case TypeMod (function): result = link_type (unit, scope_index, type->mod.func.type, 0); break ;
+				case TypeMod (array): result = link_type (unit, scope_index, type->mod.array.type, 0); break ;
 				default: Unreachable ();
 			}
 		} break ;
@@ -167,19 +190,35 @@ int		link_type (struct unit *unit, int scope_index, int type_index) {
 			result = 1;
 		} break ;
 		case TypeKind (tag): {
-			int		decl;
+			int		decl_index;
 
-			decl = find_decl_tag (unit, scope_index, type->tag.name, type->tag.type);
-			if (decl >= 0) {
-				type->kind = TypeKind (decl);
-				type->decl.index = decl;
+			decl_index = find_decl_tag (unit, scope_index, type->tag.name, type->tag.type);
+			if (decl_index >= 0) {
+				Debug ("resolving %s tag '%s' with selfref check %d", g_tagname[type->tag.type], type->tag.name, is_selfref_check);
+				if (is_selfref_check) {
+					struct decl	*decl;
+
+					decl = get_decl (unit, decl_index);
+					if (decl->is_in_process == 0) {
+						type->kind = TypeKind (decl);
+						type->decl.index = decl_index;
+						result = 1;
+					} else {
+						Error ("self referencing declaration of %s tag '%s'", g_tagname[decl->tag.type], decl->name);
+						result = 0;
+					}
+				} else {
+					type->kind = TypeKind (decl);
+					type->decl.index = decl_index;
+					result = 1;
+				}
 			} else {
 				Error ("undeclared %s tag '%s'", g_tagname[type->tag.type], type->tag.name);
 				result = 0;
 			}
 		} break ;
 		case TypeKind (typeof): {
-			result = link_expr (unit, scope_index, type->typeof.expr);
+			result = link_expr (unit, scope_index, type->typeof.expr, 1);
 		} break ;
 		default: Unreachable ();
 	}
@@ -194,7 +233,7 @@ int		link_decl_var (struct unit *unit, int scope_index, int decl_index) {
 	Assert (decl->type >= 0);
 	if (decl->is_in_process == 0) {
 		decl->is_in_process = 1;
-		result = link_type (unit, scope_index, decl->type);
+		result = link_type (unit, scope_index, decl->type, 1);
 		decl->is_in_process = 0;
 	} else {
 		Error ("type loop referencing");
@@ -210,7 +249,7 @@ int		link_decl_const (struct unit *unit, int scope_index, int decl_index) {
 	decl = get_decl (unit, decl_index);
 	if (decl->is_in_process == 0) {
 		decl->is_in_process = 1;
-		result = link_expr (unit, scope_index, decl->dconst.expr);
+		result = link_expr (unit, scope_index, decl->dconst.expr, 1);
 		decl->is_in_process = 0;
 	} else {
 		Error ("type loop referencing");
@@ -229,7 +268,7 @@ int		link_param_scope (struct unit *unit, int scope_index, int param_scope_index
 
 		decl = get_decl (unit, scope->decl_begin);
 		do {
-			result = link_type (unit, scope_index, decl->type);
+			result = link_type (unit, scope_index, decl->type, 1);
 			decl = decl->next >= 0 ? get_decl (unit, decl->next) : 0;
 		} while (result && decl);
 	} else {
@@ -252,13 +291,13 @@ int		link_code_scope_flow (struct unit *unit, int scope_index, int flow_index) {
 			result = link_decl (unit, scope_index, flow->decl.index);
 		} break ;
 		case FlowType (expr): {
-			result = link_expr (unit, scope_index, flow->expr.index);
+			result = link_expr (unit, scope_index, flow->expr.index, 1);
 		} break ;
 		case FlowType (block): {
 			result = link_code_scope (unit, flow->block.scope);
 		} break ;
 		case FlowType (if): {
-			if (link_expr (unit, scope_index, flow->fif.expr)) {
+			if (link_expr (unit, scope_index, flow->fif.expr, 1)) {
 				if (link_code_scope_flow (unit, scope_index, flow->fif.flow_body)) {
 					if (flow->fif.else_body >= 0) {
 						result = link_code_scope_flow (unit, scope_index, flow->fif.else_body);
@@ -273,7 +312,7 @@ int		link_code_scope_flow (struct unit *unit, int scope_index, int flow_index) {
 			}
 		} break ;
 		case FlowType (while): {
-			if (link_expr (unit, scope_index, flow->fwhile.expr)) {
+			if (link_expr (unit, scope_index, flow->fwhile.expr, 1)) {
 				result = link_code_scope_flow (unit, scope_index, flow->fwhile.flow_body);
 			} else {
 				result = 0;
@@ -281,7 +320,7 @@ int		link_code_scope_flow (struct unit *unit, int scope_index, int flow_index) {
 		} break ;
 		case FlowType (dowhile): {
 			if (link_code_scope_flow (unit, scope_index, flow->dowhile.flow_body)) {
-				result = link_expr (unit, scope_index, flow->dowhile.expr);
+				result = link_expr (unit, scope_index, flow->dowhile.expr, 1);
 			} else {
 				result = 0;
 			}
@@ -322,7 +361,7 @@ int		link_decl_func (struct unit *unit, int scope_index, int decl_index) {
 	decl = get_decl (unit, decl_index);
 	if (decl->is_in_process == 0) {
 		decl->is_in_process = 1;
-		if (link_type (unit, scope_index, decl->type)) {
+		if (link_type (unit, scope_index, decl->type, 1)) {
 			if (link_param_scope (unit, scope_index, decl->func.param_scope)) {
 				result = link_code_scope (unit, decl->func.scope);
 			} else {
@@ -354,7 +393,7 @@ int		link_enum_scope_flow (struct unit *unit, int scope_index, int flow_index) {
 			if (decl->enumt.expr >= 0) {
 				if (decl->is_in_process == 0) {
 					decl->is_in_process = 1;
-					result = link_expr (unit, scope_index, decl->enumt.expr);
+					result = link_expr (unit, scope_index, decl->enumt.expr, 1);
 					decl->is_in_process = 0;
 				} else {
 					Error ("self referencing");
@@ -428,12 +467,19 @@ int		link_decl_tag (struct unit *unit, int scope_index, int decl_index) {
 
 	decl = get_decl (unit, decl_index);
 	if (check_scope_declarations_for_name_uniqueness (unit, decl->tag.scope)) {
-		if (decl->tag.type == TagType (struct) || decl->tag.type == TagType (union) || decl->tag.type == TagType (stroke)) {
-			result = link_struct_scope (unit, decl->tag.scope);
-		} else if (decl->tag.type == TagType (enum) || decl->tag.type == TagType (bitfield)) {
-			result = link_enum_scope (unit, decl->tag.scope);
+		if (decl->is_in_process == 0) {
+			decl->is_in_process = 1;
+			if (decl->tag.type == TagType (struct) || decl->tag.type == TagType (union) || decl->tag.type == TagType (stroke)) {
+				result = link_struct_scope (unit, decl->tag.scope);
+			} else if (decl->tag.type == TagType (enum) || decl->tag.type == TagType (bitfield)) {
+				result = link_enum_scope (unit, decl->tag.scope);
+			} else {
+				Error ("unknown tag type");
+				result = 0;
+			}
+			decl->is_in_process = 0;
 		} else {
-			Error ("unknown tag type");
+			Error ("self referencing declaration of %s tag '%s'", g_tagname[decl->tag.type], decl->name);
 			result = 0;
 		}
 	} else {

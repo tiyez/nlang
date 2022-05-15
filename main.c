@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 
 #define Implementation_All
 #include "def.h"
@@ -102,9 +103,35 @@ const char	*get_basictype_name (enum basictype type) {
 	return (g_basictype_name[type]);
 }
 
+int		is_basictype_integral (enum basictype type) {
+	return (type >= BasicType (char) && type <= BasicType (usize));
+}
+
+int		is_basictype_signed (enum basictype type) {
+	int		result;
+
+	switch (type) {
+		BasicType (char):
+		BasicType (wchar):
+		BasicType (byte):
+		BasicType (short):
+		BasicType (int):
+		BasicType (size):
+		BasicType (float):
+		BasicType (double): {
+			result = 1;
+		} break ;
+		default: {
+			result = 0;
+		} break ;
+	}
+	return (result);
+}
+
 #define TypeKind(name) TypeKind_##name
 enum typekind {
 	TypeKind (basic),
+	TypeKind (group),
 	TypeKind (tag),
 	TypeKind (mod),
 	TypeKind (typeof),
@@ -132,10 +159,25 @@ const char	*g_tagname[] = {
 	"invalid", "struct", "union", "stroke", "enum", "bitfield",
 };
 
+int		is_tagtype (const char *string, enum tagtype *out) {
+	int		index;
+
+	index = 1;
+	while (index < Array_Count (g_tagname) && 0 != strcmp (string, g_tagname[index])) {
+		index += 1;
+	}
+	*out = index;
+	return (index < Array_Count (g_tagname));
+}
+
 struct type_basic {
 	enum basictype	type;
 	uint			is_const : 1;
 	uint			is_volatile : 1;
+};
+
+struct type_group {
+	int			type;
 };
 
 struct type_tag {
@@ -191,6 +233,7 @@ struct type {
 	enum typekind	kind;
 	union {
 		struct type_basic	basic;
+		struct type_group	group;
 		struct type_tag		tag;
 		struct type_mod		mod;
 		struct type_typeof	typeof;
@@ -441,6 +484,13 @@ struct unit {
 	struct scope	*scopes;
 };
 
+struct typestack {
+	struct type	types[Max_Type_Depth];
+	int			types_count;
+	int			head;
+};
+
+
 int		make_scope (struct unit *unit, enum scopekind kind, int parent);
 struct scope	*get_scope (struct unit *unit, int scope_index);
 struct decl	*get_decl (struct unit *unit, int index);
@@ -450,8 +500,11 @@ void	print_type (struct unit *unit, int head, FILE *file);
 #include "expr.c"
 #include "type.c"
 #include "scope.c"
-// #include "semantic.c"
 #include "link.c"
+#include "typestack.c"
+// #include "typecheck.c"
+#include "writer.c"
+#include "cbackend.c"
 
 void	init_unit (struct unit *unit) {
 	unit->root_scope = make_scope (unit, ScopeKind (unit), -1);
@@ -555,29 +608,39 @@ int		main () {
 	// 	Error ("cannot parse expr");
 	// }
 
-	int		head = -1;
-	if (parse_scope (unit, unit->root_scope, &tokens)) {
-		print_scope (unit, unit->root_scope, 0, stdout);
-		if (link_unit (unit)) {
-			Debug ("-------------------");
-			print_scope (unit, unit->root_scope, 0, stdout);
-		} else {
-			Error ("cannot link unit");
-		}
-	} else {
-		Error ("cannot parse code scope");
-	}
-
 	// int		head = -1;
-	// if (parse_type (unit, &tokens, &head)) {
-	// 	if (head >= 0) {
-	// 		print_type (unit, head, stdout);
+	// if (parse_scope (unit, unit->root_scope, &tokens)) {
+	// 	print_scope (unit, unit->root_scope, 0, stdout);
+	// 	if (link_unit (unit)) {
+	// 		Debug ("-------------------");
+	// 		print_scope (unit, unit->root_scope, 0, stdout);
 	// 	} else {
-	// 		Debug ("empty type");
+	// 		Error ("cannot link unit");
 	// 	}
 	// } else {
-	// 	Error ("cannot parse type");
+	// 	Error ("cannot parse code scope");
 	// }
+
+	int		head = -1;
+	if (parse_type (unit, &tokens, &head)) {
+		if (head >= 0) {
+			struct cbuffer	cbuffer;
+
+			printf ("\ntype: ");
+			print_type (unit, head, stdout);
+			printf ("\ntree: ");
+			print_type_tree (unit, head, stdout);
+			printf ("\nc: ");
+			init_cbuffer (&cbuffer);
+			c_backend_translate_type (unit, head, "a", &cbuffer);
+			printf ("%s", cbuffer.wr->buffer);
+			printf ("\n");
+		} else {
+			Debug ("empty type");
+		}
+	} else {
+		Error ("cannot parse type");
+	}
 
 	// parse_unit (unit, tokens);
 
