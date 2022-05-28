@@ -116,9 +116,7 @@ int		is_basictype_signed (enum basictype type) {
 		BasicType (byte):
 		BasicType (short):
 		BasicType (int):
-		BasicType (size):
-		BasicType (float):
-		BasicType (double): {
+		BasicType (size): {
 			result = 1;
 		} break ;
 		default: {
@@ -128,14 +126,73 @@ int		is_basictype_signed (enum basictype type) {
 	return (result);
 }
 
+int		is_basictype_unsigned (enum basictype type) {
+	int		result;
+
+	switch (type) {
+		case BasicType (uchar):
+		case BasicType (ubyte):
+		case BasicType (ushort):
+		case BasicType (uint):
+		case BasicType (usize): {
+			result = 1;
+		} break ;
+		default: {
+			result = 0;
+		} break ;
+	}
+	return (result);
+}
+
+int		is_basictype_float (enum basictype type) {
+	return (type == BasicType (float) || type == BasicType (double));
+}
+
+int		get_basictype_size (enum basictype type) {
+	int		result;
+
+	switch (type) {
+		case BasicType (void): {
+			result = 0;
+		} break ;
+		case BasicType (char):
+		case BasicType (uchar):
+		case BasicType (wchar):
+		case BasicType (byte):
+		case BasicType (ubyte): {
+			result = 1;
+		} break ;
+		case BasicType (short):
+		case BasicType (ushort): {
+			result = 2;
+		} break ;
+		case BasicType (float):
+		case BasicType (int):
+		case BasicType (uint): {
+			result = 4;
+		} break ;
+		case BasicType (double):
+		case BasicType (size):
+		case BasicType (usize): {
+			result = 8;
+		} break ;
+	}
+	return (result);
+}
+
 #define TypeKind(name) TypeKind_##name
 enum typekind {
 	TypeKind (basic),
-	TypeKind (group),
 	TypeKind (tag),
 	TypeKind (mod),
+	TypeKind (group),
 	TypeKind (typeof),
 	TypeKind (decl),
+	TypeKind (accessor),
+};
+
+const char	*g_typekind[] = {
+	"basic", "tag", "mod", "group", "typeof", "decl", "accessor",
 };
 
 #define TypeMod(name) TypeMod_##name
@@ -143,6 +200,10 @@ enum typemod {
 	TypeMod (pointer),
 	TypeMod (array),
 	TypeMod (function),
+};
+
+const char	*g_typemod[] = {
+	"pointer", "array", "function",
 };
 
 #define TagType(name) TagType_##name
@@ -183,6 +244,7 @@ struct type_group {
 struct type_tag {
 	enum tagtype	type;
 	const char		*name;
+	int				decl;
 	uint			is_const : 1;
 	uint			is_volatile : 1;
 };
@@ -197,6 +259,11 @@ struct type_decl {
 	int		index;
 	uint	is_const : 1;
 	uint	is_volatile : 1;
+};
+
+struct type_accessor {
+	enum tagtype	tagtype;
+	const char		*tagname;
 };
 
 struct typemod_ptr {
@@ -238,6 +305,7 @@ struct type {
 		struct type_mod		mod;
 		struct type_typeof	typeof;
 		struct type_decl	decl;
+		struct type_accessor	accessor;
 	};
 };
 
@@ -245,10 +313,13 @@ struct type {
 enum declkind {
 	DeclKind (var),
 	DeclKind (const),
-	DeclKind (func),
 	DeclKind (tag),
+	DeclKind (func),
+	DeclKind (macro),
+	DeclKind (param),
 	DeclKind (block),
 	DeclKind (enum),
+	DeclKind (accessor),
 };
 
 struct decl_const {
@@ -256,6 +327,11 @@ struct decl_const {
 };
 
 struct decl_func {
+	int		param_scope;
+	int		scope;
+};
+
+struct decl_macro {
 	int		param_scope;
 	int		scope;
 };
@@ -273,6 +349,12 @@ struct decl_enum {
 	int		expr;
 };
 
+struct decl_accessor {
+	enum tagtype	tagtype;
+	const char		*name;
+	int				decl;
+};
+
 struct decl {
 	int				next;
 	const char		*name;
@@ -281,10 +363,12 @@ struct decl {
 	enum declkind	kind;
 	union {
 		struct decl_const	dconst;
-		struct decl_func	func;
 		struct decl_tag		tag;
+		struct decl_func	func;
+		struct decl_macro	macro;
 		struct decl_block	block;
 		struct decl_enum	enumt;
+		struct decl_accessor	accessor;
 	};
 };
 
@@ -346,6 +430,7 @@ enum scopekind {
 	ScopeKind (code),
 	ScopeKind (tag),
 	ScopeKind (param),
+	ScopeKind (macro),
 };
 
 struct scope {
@@ -353,6 +438,7 @@ struct scope {
 	enum tagtype	tagtype;
 	int				parent_scope;
 	int				param_scope;
+	int				type_index;
 	int				decl_begin;
 	int				decl_last;
 	int				flow_begin;
@@ -369,6 +455,10 @@ enum exprtype {
 	ExprType (compound),
 	ExprType (funcparam),
 	ExprType (typeinfo),
+};
+
+const char	*g_exprtype[] = {
+	"invalid", "op", "constant", "identifier", "decl", "compound", "funcparam", "typeinfo",
 };
 
 struct expr_constant {
@@ -488,6 +578,7 @@ struct typestack {
 	struct type	types[Max_Type_Depth];
 	int			types_count;
 	int			head;
+	int			is_lvalue;
 };
 
 
@@ -499,75 +590,15 @@ void	print_type (struct unit *unit, int head, FILE *file);
 
 #include "expr.c"
 #include "type.c"
+#include "typestack.c"
 #include "scope.c"
 #include "link.c"
-#include "typestack.c"
-// #include "typecheck.c"
+#include "macro.c"
 #include "writer.c"
 #include "cbackend.c"
 
 void	init_unit (struct unit *unit) {
 	unit->root_scope = make_scope (unit, ScopeKind (unit), -1);
-}
-
-int		parse_global_var (struct unit *unit, char **ptokens, const char *name, int type) {
-	return (0);
-}
-
-int		parse_function (struct unit *unit, char **ptokens, const char *name, int type) {
-	return (0);
-}
-
-int		parse_global_var_or_function (struct unit *unit, char **ptokens) {
-	int			result;
-	const char	*name;
-	int			type_index;
-
-	Assert ((*ptokens)[-1] == Token (identifier));
-	name = *ptokens;
-	*ptokens = next_token (*ptokens, 0);
-	if (parse_type (unit, ptokens, &type_index)) {
-		if ((*ptokens)[-1] == Token (punctuator)) {
-			if (0 == strcmp (*ptokens, "{")) {
-				result = parse_function (unit, ptokens, name, type_index);
-			} else if (0 == strcmp (*ptokens, ";") || 0 == strcmp (*ptokens, "=")) {
-				result = parse_global_var (unit, ptokens, name, type_index);
-			} else {
-				Error ("unexpected token");
-				result = 0;
-			}
-		} else {
-			Error ("unexpected token");
-			result = 0;
-		}
-	} else {
-		Error ("cannot make type");
-		result = 0;
-	}
-	return (result);
-}
-
-int		parse_unit (struct unit *unit, char **ptokens) {
-	int		result;
-
-	if ((*ptokens)[-1] == Token (identifier)) {
-		if (0 == strcmp (*ptokens, "struct")) {
-			*ptokens = next_token (*ptokens, 0);
-			// result = parse_decl_struct (unit, ptokens);
-		} else if (0 == strcmp (*ptokens, "enum")) {
-			*ptokens = next_token (*ptokens, 0);
-			// result = parse_decl_enum (unit, ptokens);
-		} else if (0 == strcmp (*ptokens, "const")) {
-			*ptokens = next_token (*ptokens, 0);
-			// result = parse_global_const (unit, ptokens);
-		} else {
-			result = parse_global_var_or_function (unit, ptokens);
-		}
-	} else {
-		Error ("unexpected token");
-		result = 0;
-	}
-	return (result);
 }
 
 int		main () {
@@ -608,6 +639,7 @@ int		main () {
 	// 	Error ("cannot parse expr");
 	// }
 
+
 	// int		head = -1;
 	// if (parse_scope (unit, unit->root_scope, &tokens)) {
 	// 	print_scope (unit, unit->root_scope, 0, stdout);
@@ -621,26 +653,49 @@ int		main () {
 	// 	Error ("cannot parse code scope");
 	// }
 
+
+	// int		head = -1;
+	// if (parse_type (unit, &tokens, &head)) {
+	// 	if (head >= 0) {
+	// 		struct cbuffer	cbuffer;
+
+	// 		printf ("\ntype: ");
+	// 		print_type (unit, head, stdout);
+	// 		printf ("\ntree: ");
+	// 		print_type_tree (unit, head, stdout);
+	// 		printf ("\nc: ");
+	// 		init_cbuffer (&cbuffer);
+	// 		c_backend_translate_type (unit, head, "a", &cbuffer);
+	// 		printf ("%s", cbuffer.wr->buffer);
+	// 		printf ("\n");
+	// 	} else {
+	// 		Debug ("empty type");
+	// 	}
+	// } else {
+	// 	Error ("cannot parse type");
+	// }
+
+
 	int		head = -1;
-	if (parse_type (unit, &tokens, &head)) {
-		if (head >= 0) {
+	if (parse_scope (unit, unit->root_scope, &tokens)) {
+		print_scope (unit, unit->root_scope, 0, stdout);
+		if (link_unit (unit)) {
 			struct cbuffer	cbuffer;
 
-			printf ("\ntype: ");
-			print_type (unit, head, stdout);
-			printf ("\ntree: ");
-			print_type_tree (unit, head, stdout);
-			printf ("\nc: ");
+			Debug ("-------------------");
+			print_scope (unit, unit->root_scope, 0, stdout);
+			Debug ("===================");
 			init_cbuffer (&cbuffer);
-			c_backend_translate_type (unit, head, "a", &cbuffer);
+			c_backend_translate_unit (unit, &cbuffer);
 			printf ("%s", cbuffer.wr->buffer);
 			printf ("\n");
 		} else {
-			Debug ("empty type");
+			Error ("cannot link unit");
 		}
 	} else {
-		Error ("cannot parse type");
+		Error ("cannot parse code scope");
 	}
+
 
 	// parse_unit (unit, tokens);
 

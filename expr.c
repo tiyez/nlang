@@ -197,6 +197,7 @@ int		make_expr_funcparam (struct unit *unit, int expr_index, int next) {
 }
 
 struct expr	*get_expr (struct unit *unit, int index) {
+	Assert (index >= 0 && index < Get_Array_Count (unit->exprs));
 	return (unit->exprs + index);
 }
 

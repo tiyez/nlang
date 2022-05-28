@@ -163,6 +163,23 @@ int		make_decl_type (struct unit *unit, int decl_index) {
 	return (index);
 }
 
+int		make_accessor_type (struct unit *unit, enum tagtype tagtype, const char *tagname) {
+	int		index;
+
+	if (Prepare_Array (unit->types, 1)) {
+		struct type	*type;
+
+		type = Push_Array (unit->types);
+		type->kind = TypeKind (accessor);
+		type->accessor.tagtype = tagtype;
+		type->accessor.tagname = tagname;
+		index = Get_Element_Index (unit->types, type);
+	} else {
+		index = -1;
+	}
+	return (index);
+}
+
 struct typestate {
 	int		group_level;
 	int		level;
@@ -286,7 +303,7 @@ int		parse_type_ (struct unit *unit, char **ptokens, int *phead, struct typestat
 						name = *ptokens;
 						*ptokens = next_token (*ptokens, 0);
 						if (parse_type (unit, ptokens, &type_index)) {
-							make_decl (unit, scope_index, name, type_index, DeclKind (const));
+							make_decl (unit, scope_index, name, type_index, DeclKind (param));
 							if (is_token (*ptokens, Token (punctuator), ")")) {
 								is_continue = 0;
 							} else if (!is_token (*ptokens, Token (punctuator), ",")) {
@@ -437,6 +454,8 @@ int		parse_type_ (struct unit *unit, char **ptokens, int *phead, struct typestat
 			} else {
 				*phead = basic_index;
 			}
+		}
+		if (result) {
 			*ptokens = next_token (*ptokens, 0);
 		}
 	} else if (state->is_post_basic) {
@@ -601,7 +620,20 @@ void	print_type_tree (struct unit *unit, int head, FILE *file) {
 	}
 }
 
+int		is_functype_returnable (struct unit *unit, int type_index) {
+	struct type	*type;
 
+	Assert (type_index >= 0);
+	type = get_type (unit, type_index);
+	Assert (type->kind == TypeKind (mod));
+	Assert (type->mod.kind == TypeMod (function));
+	Assert (type->mod.func.type >= 0);
+	type = get_type (unit, type->mod.func.type);
+	while (type->kind == TypeKind (group)) {
+		type = get_type (unit, type->group.type);
+	}
+	return (!(type->kind == TypeKind (basic) && type->basic.type == BasicType (void)));
+}
 
 
 

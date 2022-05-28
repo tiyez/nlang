@@ -1,4 +1,4 @@
-
+]
 int		analyze_code_flow (struct unit *unit, int flow_index, int scope_index) {
 	int		result;
 	struct flow	*flow;

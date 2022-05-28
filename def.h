@@ -60,6 +60,7 @@ do {fprintf (stderr, "%s:%d:%d: Error: ", filename, line, column);\
 #define Assert(expr) assert (expr)
 #define Unreachable() Assert (!"unreachable")
 // #define Unreachable() __assume (0)
+#define Todo() Assert (!"not implemented yet");
 
 #define Member_Offset(type, memb) (&(((type *)0)->memb))
 #define Array_Count(arr) (sizeof (arr) / sizeof ((arr)[0]))

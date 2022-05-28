@@ -3,6 +3,7 @@
 void	init_typestack (struct typestack *typestack) {
 	typestack->types_count = 0;
 	typestack->head = -1;
+	typestack->is_lvalue = 0;
 }
 
 struct type	*get_typestack_type (struct typestack *typestack, int index) {
@@ -20,7 +21,7 @@ void	empty_typestack (struct typestack *typestack) {
 int		push_typestack (struct typestack *typestack, struct type *type) {
 	int		result;
 
-	if (typestack->head >= 0) {
+	if (typestack->head < 0) {
 		Assert (type->kind != TypeKind (mod) && type->kind != TypeKind (typeof));
 		Assert (typestack->types_count == 0);
 		typestack->types[typestack->types_count] = *type;
@@ -28,6 +29,7 @@ int		push_typestack (struct typestack *typestack, struct type *type) {
 		typestack->types_count += 1;
 		result = 1;
 	} else {
+		// Debug ("type kind %s; head kind is %s", g_typekind[type->kind], g_typekind[get_typestack_head (typestack)->kind]);
 		Assert (type->kind == TypeKind (mod));
 		Assert (typestack->types_count > 0 && typestack->types_count < Max_Type_Depth);
 		typestack->types[typestack->types_count] = *type;
@@ -41,6 +43,44 @@ int		push_typestack (struct typestack *typestack, struct type *type) {
 		typestack->head = typestack->types_count;
 		typestack->types_count += 1;
 		result = 1;
+	}
+	return (result);
+}
+
+int		push_typestack_recursive (struct unit *unit, struct typestack *typestack, int type_index) {
+	int			result;
+	struct type	*type;
+
+	type = get_type (unit, type_index);
+	switch (type->kind) {
+		case TypeKind (accessor):
+		case TypeKind (tag):
+		case TypeKind (basic): {
+			result = push_typestack (typestack, type);
+		} break ;
+		case TypeKind (group): {
+			result = push_typestack_recursive (unit, typestack, type->group.type);
+		} break ;
+		case TypeKind (mod): {
+			if (push_typestack_recursive (unit, typestack, *get_type_mod_forward_ptr (type))) {
+				result = push_typestack (typestack, type);
+			} else {
+				result = 0;
+			}
+		} break ;
+		case TypeKind (decl): {
+			struct decl	*decl;
+
+			decl = get_decl (unit, type->decl.index);
+			if (decl->type >= 0) {
+				result = push_typestack_recursive (unit, typestack, decl->type);
+			} else {
+				Error ("decl doesn't have a type");
+				result = 0;
+			}
+		} break ;
+		case TypeKind (typeof):
+		default: Unreachable ();
 	}
 	return (result);
 }
