@@ -1,5 +1,34 @@
 
 
+int		c_backend_translate_tag_name (enum tagtype tagtype, const char *tagname, struct cbuffer *buffer) {
+	int		result;
+
+	result = write_format (buffer->wr, "%s %c_%s", g_tagname[tagtype], g_tagname[tagtype][0], tagname);
+	return (result);
+}
+
+int		c_backend_translate_macro_name (const char *name, struct cbuffer *buffer) {
+	int		result;
+
+	result = write_format (buffer->wr, "M_%s", name);
+	return (result);
+}
+
+int		c_backend_translate_enum_name (const char *tagname, const char *name, struct cbuffer *buffer) {
+	int		result;
+
+	result = write_format (buffer->wr, "e_%s_%s", tagname, name);
+	return (result);
+}
+
+int		c_backend_translate_const_name (const char *name, struct cbuffer *buffer) {
+	int		result;
+
+	result = write_format (buffer->wr, "CONST_%s", name);
+	return (result);
+}
+
+
 int		c_backend_translate_param_scope (struct unit *unit, int scope_index, struct cbuffer *buffer);
 
 void	c_backend_translate_typemod (struct unit *unit, struct type **types, int index, const char *iden, struct cbuffer *buffer) {
@@ -103,7 +132,8 @@ int		c_backend_translate_type (struct unit *unit, int type_index, const char *id
 			decl = get_decl (unit, type->decl.index);
 			switch (decl->kind) {
 				case DeclKind (tag): {
-					write_format (buffer->wr, "%s %c_%s ", g_tagname[decl->tag.type], g_tagname[decl->tag.type][0], decl->name);
+					c_backend_translate_tag_name (decl->tag.type, decl->name, buffer);
+					write_string (buffer->wr, " ");
 				} break ;
 				default: Unreachable ();
 			}
@@ -140,19 +170,19 @@ int		c_backend_translate_expr (struct unit *unit, int expr_index, struct cbuffer
 					struct expr	*forward;
 
 					forward = get_expr (unit, expr->op.forward);
-					if (forward->type == ExprType (decl) && get_decl (unit, forward->decl.index)->kind == DeclKind (accessor)) {
+					if (forward->type == ExprType (identifier) && forward->iden.decl >= 0 && get_decl (unit, forward->iden.decl)->kind == DeclKind (accessor)) {
 						struct decl	*accessor, *enumer;
 						struct expr	*backward;
 
-						accessor = get_decl (unit, forward->decl.index);
+						accessor = get_decl (unit, forward->iden.decl);
 						backward = get_expr (unit, expr->op.backward);
 						Assert (backward->type == ExprType (funcparam));
 						Assert (backward->funcparam.next < 0);
 						Assert (backward->funcparam.expr >= 0);
 						backward = get_expr (unit, backward->funcparam.expr);
-						Assert (backward->type == ExprType (decl));
-						enumer = get_decl (unit, backward->decl.index);
-						write_format (buffer->wr, "e_%s_%s", accessor->accessor.name, enumer->name);
+						Assert (backward->type == ExprType (identifier));
+						enumer = get_decl (unit, backward->iden.decl);
+						c_backend_translate_enum_name (accessor->accessor.name, enumer->name, buffer);
 						result = 1;
 					} else {
 						if (c_backend_translate_expr (unit, expr->op.forward, buffer)) {
@@ -235,14 +265,20 @@ int		c_backend_translate_expr (struct unit *unit, int expr_index, struct cbuffer
 				result = write_format (buffer->wr, "%f", expr->constant.fvalue);
 			}
 		} break ;
-		case ExprType (decl): {
-			struct decl	*decl;
+		case ExprType (identifier): {
+			if (expr->iden.decl >= 0) {
+				struct decl	*decl;
 
-			decl = get_decl (unit, expr->decl.index);
-			if (decl->kind == DeclKind (const)) {
-				result = write_format (buffer->wr, "(CONST_%s)", decl->name);
+				decl = get_decl (unit, expr->iden.decl);
+				if (decl->kind == DeclKind (const)) {
+					result = c_backend_translate_const_name (decl->name, buffer);
+				} else if (decl->kind == DeclKind (macro)) {
+					result = c_backend_translate_macro_name (decl->name, buffer);
+				} else {
+					result = write_string (buffer->wr, decl->name);
+				}
 			} else {
-				result = write_string (buffer->wr, decl->name);
+				result = write_string (buffer->wr, expr->iden.name);
 			}
 		} break ;
 		case ExprType (funcparam): {
@@ -258,9 +294,37 @@ int		c_backend_translate_expr (struct unit *unit, int expr_index, struct cbuffer
 			}
 		} break ;
 		case ExprType (typeinfo): {
-			Unreachable (); /* TODO; */
+			if (expr->typeinfo.decl >= 0) {
+				struct decl	*decl;
+
+				decl = get_decl (unit, expr->typeinfo.decl);
+				Assert (decl->kind == DeclKind (typeinfo));
+				Assert (decl->type >= 0);
+				write_format (buffer->wr, "(g_typeinfos[%d])", decl->type);
+				result = 1;
+			} else {
+				Error ("no decl for typeinfo");
+				result = 0;
+			}
 		} break ;
-		default: Unreachable ();
+		case ExprType (macroparam): {
+			result = write_format (buffer->wr, "(%s)", expr->macroparam.name);
+		} break ;
+		case ExprType (string): {
+			char	unescaped[4 * 1024];
+			usize	size;
+
+			if (unescape_string (&expr->string.token, unescaped, sizeof unescaped, &size)) {
+				write_string (buffer->wr, "\"");
+				write_string_n (buffer->wr, unescaped, size);
+				write_string (buffer->wr, "\"");
+				result = 1;
+			} else {
+				Error ("string too long");
+				result = 0;
+			}
+		} break ;
+		default: Debug ("type %d", expr->type); Unreachable ();
 	}
 	return (result);
 }
@@ -305,7 +369,7 @@ int		c_backend_translate_tag_scope (struct unit *unit, int scope_index, struct c
 					Assert (type->kind == TypeKind (tag));
 					Assert (type->tag.type == TagType (enum));
 					write_c_new_line (buffer);
-					write_format (buffer->wr, "e_%s_%s", type->tag.name, decl->name);
+					c_backend_translate_enum_name (type->tag.name, decl->name, buffer);
 					if (decl->enumt.expr >= 0) {
 						write_string (buffer->wr, " = ");
 						result = c_backend_translate_expr (unit, decl->enumt.expr, buffer);
@@ -331,7 +395,8 @@ int		c_backend_translate_tag_decl (struct unit *unit, int decl_index, struct cbu
 	decl = get_decl (unit, decl_index);
 	Assert (decl->kind == DeclKind (tag));
 	write_c_new_line (buffer);
-	write_format (buffer->wr, "%s %c_%s {", g_tagname[decl->tag.type], g_tagname[decl->tag.type][0], decl->name);
+	c_backend_translate_tag_name (decl->tag.type, decl->name, buffer);
+	write_string (buffer->wr, " {");
 	write_c_indent_up (buffer);
 	result = c_backend_translate_tag_scope (unit, decl->tag.scope, buffer);
 	write_c_indent_down (buffer);
@@ -472,6 +537,78 @@ int		c_backend_translate_code_scope (struct unit *unit, int scope_index, struct 
 	return (result);
 }
 
+int		c_backend_translate_macro_flow (struct unit *unit, int scope_index, int flow_index, struct cbuffer *buffer) {
+	int		result;
+	struct flow	*flow;
+
+	flow = get_flow (unit, flow_index);
+	switch (flow->type) {
+		case FlowType (if): {
+			write_string (buffer->wr, "(");
+			if (c_backend_translate_expr (unit, flow->fif.expr, buffer)) {
+				write_string (buffer->wr, ") ? (");
+				if (c_backend_translate_macro_flow (unit, scope_index, flow->fif.flow_body, buffer)) {
+					write_string (buffer->wr, ") : (");
+					if (c_backend_translate_macro_flow (unit, scope_index, flow->fif.else_body, buffer)) {
+						write_string (buffer->wr, ")");
+						result = 1;
+					}
+				} else {
+					result = 0;
+				}
+			} else {
+				result = 0;
+			}
+		} break ;
+		case FlowType (block): {
+			write_string (buffer->wr, "(");
+			result = c_backend_translate_macro_scope (unit, flow->block.scope, buffer);
+			write_string (buffer->wr, ")");
+		} break ;
+		case FlowType (expr): {
+			result = c_backend_translate_expr (unit, flow->expr.index, buffer);
+		} break ;
+		default: Unreachable ();
+	}
+	if (result && flow->next >= 0) {
+		write_string (buffer->wr, ", ");
+	}
+	return (result);
+}
+
+int		c_backend_translate_macro_scope (struct unit *unit, int scope_index, struct cbuffer *buffer) {
+	int				result;
+	struct scope	*scope;
+
+	scope = get_scope (unit, scope_index);
+	if (scope->flow_begin >= 0) {
+		struct flow	*flow;
+
+		flow = get_flow (unit, scope->flow_begin);
+		do {
+			result = c_backend_translate_macro_flow (unit, scope_index, get_flow_index (unit, flow), buffer);
+			flow = flow->next >= 0 ? get_flow (unit, flow->next) : 0;
+		} while (result && flow);
+	}
+	return (result);
+}
+
+int		c_backend_translate_func_prototype (struct unit *unit, int decl_index, struct cbuffer *buffer) {
+	int		result;
+	struct decl	*decl;
+
+	decl = get_decl (unit, decl_index);
+	Assert (decl->kind == DeclKind (func));
+	write_c_new_line (buffer);
+	if (c_backend_translate_type (unit, decl->type, decl->name, buffer)) {
+		write_string (buffer->wr, ";");
+		result = 1;
+	} else {
+		result = 0;
+	}
+	return (result);
+}
+
 int		c_backend_translate_decl (struct unit *unit, int decl_index, struct cbuffer *buffer) {
 	int		result;
 	struct decl	*decl;
@@ -504,16 +641,128 @@ int		c_backend_translate_decl (struct unit *unit, int decl_index, struct cbuffer
 		} break ;
 		case DeclKind (const): {
 			write_c_new_line (buffer);
-			write_format (buffer->wr, "#define CONST_%s ", decl->name);
+			write_string (buffer->wr, "#define ");
+			c_backend_translate_const_name (decl->name, buffer);
+			write_string (buffer->wr, " (");
 			if (c_backend_translate_expr (unit, decl->dconst.expr, buffer)) {
+				write_string (buffer->wr, ")");
 				result = 1;
 			} else {
 				result = 0;
 			}
 		} break ;
+		case DeclKind (macro): {
+			struct scope	*scope;
+
+			write_c_new_line (buffer);
+			write_string (buffer->wr, "#define ");
+			c_backend_translate_macro_name (decl->name, buffer);
+			write_string (buffer->wr, "(");
+			scope = get_scope (unit, decl->macro.param_scope);
+			if (scope->decl_begin >= 0) {
+				struct decl	*param;
+
+				param = get_decl (unit, scope->decl_begin);
+				do {
+					if (param->next >= 0) {
+						write_format (buffer->wr, "%s, ", param->name);
+						param = get_decl (unit, param->next);
+					} else {
+						write_string (buffer->wr, param->name);
+						param = 0;
+					}
+				} while (param);
+			}
+			write_string (buffer->wr, ") (");
+			result = c_backend_translate_macro_scope (unit, decl->macro.scope, buffer);
+			write_string (buffer->wr, ")");
+		} break ;
+		case DeclKind (external): {
+			write_c_new_line (buffer);
+			write_string (buffer->wr, "extern ");
+			result = c_backend_translate_type (unit, decl->type, decl->name, buffer);
+			write_string (buffer->wr, ";");
+		} break ;
 		case DeclKind (enum):
 		default: Unreachable ();
 	}
+	return (result);
+}
+
+int		c_backend_translate_typeinfo (struct unit *unit, struct cbuffer *buffer) {
+	int		result;
+
+	write_c_new_line (buffer);
+	c_backend_translate_tag_name (TagType (struct), "typeinfo", buffer);
+	write_string (buffer->wr, " const g_typeinfos[];");
+	if (Get_Array_Count (unit->typemembers) > 0) {
+		int		index;
+
+		write_c_new_line (buffer);
+		c_backend_translate_tag_name (TagType (struct), "typemember", buffer);
+		write_string (buffer->wr, " const g_typemembers[] = {");
+		write_c_indent_up (buffer);
+		index = 0;
+		while (index < Get_Array_Count (unit->typemembers)) {
+			struct typemember	*member;
+
+			member = unit->typemembers + index;
+			write_c_new_line (buffer);
+			if (member->name == 0) {
+				write_string (buffer->wr, "{ 0, 0, 0, 0 },");
+			} else if (member->typeinfo >= 0) {
+				write_format (buffer->wr, "{ \"%s\", g_typeinfos + %d, %d, %d },", member->name, member->typeinfo, member->value, member->offset);
+			} else {
+				write_format (buffer->wr, "{ \"%s\", 0, %d, %d },", member->name, member->value, member->offset);
+			}
+			index += 1;
+		}
+		write_c_indent_down (buffer);
+		write_c_new_line (buffer);
+		write_string (buffer->wr, "};");
+	}
+	if (Get_Array_Count (unit->typeinfos) > 0) {
+		int		index;
+
+		write_c_new_line (buffer);
+		c_backend_translate_tag_name (TagType (struct), "typeinfo", buffer);
+		write_string (buffer->wr, " const g_typeinfos[] = {");
+		write_c_indent_up (buffer);
+		index = 0;
+		while (index < Get_Array_Count (unit->typeinfos)) {
+			struct typeinfo	*typeinfo;
+
+			typeinfo = unit->typeinfos + index;
+			write_c_new_line (buffer);
+			write_format (buffer->wr, "{ %zu, %d, %d, ", typeinfo->size, typeinfo->count, typeinfo->kind);
+			switch (typeinfo->kind) {
+				case TypeInfo_Kind (basic): {
+					write_format (buffer->wr, "%d, 0, 0, 0 },", typeinfo->basic);
+				} break ;
+				case TypeInfo_Kind (struct):
+				case TypeInfo_Kind (enum):
+				case TypeInfo_Kind (union): {
+					write_format (buffer->wr, "0, \"%s\", 0, g_typemembers + %d },", typeinfo->tagname, typeinfo->members);
+				} break ;
+				case TypeInfo_Kind (pointer):
+				case TypeInfo_Kind (array): {
+					write_format (buffer->wr, "0, 0, g_typeinfos + %d, 0 },", typeinfo->typeinfo);
+				} break ;
+				case TypeInfo_Kind (function): {
+					if (typeinfo->members >= 0) {
+						write_format (buffer->wr, "0, 0, g_typeinfos + %d, g_typemembers + %d },", typeinfo->typeinfo, typeinfo->members);
+					} else {
+						write_format (buffer->wr, "0, 0, g_typeinfos + %d, 0 },", typeinfo->typeinfo);
+					}
+				} break ;
+			}
+			index += 1;
+		}
+		write_c_indent_down (buffer);
+		write_c_new_line (buffer);
+		write_string (buffer->wr, "};");
+	}
+	result = 1;
 	return (result);
 }
 
@@ -522,19 +771,66 @@ int		c_backend_translate_unit_scope (struct unit *unit, int scope_index, struct 
 	struct scope	*scope;
 
 	scope = get_scope (unit, scope_index);
-	if (scope->flow_begin >= 0) {
-		struct flow	*flow;
+	if (scope->decl_begin >= 0) {
+		struct decl	*decl;
 
-		flow = get_flow (unit, scope->flow_begin);
+		decl = get_decl (unit, scope->decl_begin);
 		do {
-			if (flow->type == FlowType (decl)) {
-				result = c_backend_translate_decl (unit, flow->decl.index, buffer);
+			if (decl->kind == DeclKind (macro)) {
+				result = c_backend_translate_decl (unit, get_decl_index (unit, decl), buffer);
+			} else if (decl->kind == DeclKind (const)) {
+				result = c_backend_translate_decl (unit, get_decl_index (unit, decl), buffer);
 			} else {
-				Error ("unexpected flow type");
-				result = 0;
+				result = 1;
 			}
-			flow = flow->next >= 0 ? get_flow (unit, flow->next) : 0;
-		} while (result && flow);
+			if (decl->next >= 0) {
+				decl = get_decl (unit, decl->next);
+			} else {
+				decl = 0;
+			}
+		} while (result && decl);
+		decl = get_decl (unit, scope->decl_begin);
+		if (result) do {
+			if (decl->kind == DeclKind (tag)) {
+				result = c_backend_translate_decl (unit, get_decl_index (unit, decl), buffer);
+			} else {
+				result = 1;
+			}
+			if (decl->next >= 0) {
+				decl = get_decl (unit, decl->next);
+			} else {
+				decl = 0;
+			}
+		} while (result && decl);
+		decl = get_decl (unit, scope->decl_begin);
+		if (result) do {
+			if (decl->kind == DeclKind (func)) {
+				result = c_backend_translate_func_prototype (unit, get_decl_index (unit, decl), buffer);
+			} else if (decl->kind == DeclKind (external)) {
+				result = c_backend_translate_decl (unit, get_decl_index (unit, decl), buffer);
+			} else {
+				result = 1;
+			}
+			if (decl->next >= 0) {
+				decl = get_decl (unit, decl->next);
+			} else {
+				decl = 0;
+			}
+		} while (result && decl);
+		result = result && c_backend_translate_typeinfo (unit, buffer);
+		decl = get_decl (unit, scope->decl_begin);
+		if (result) do {
+			if (decl->kind == DeclKind (func)) {
+				result = c_backend_translate_decl (unit, get_decl_index (unit, decl), buffer);
+			} else {
+				result = 1;
+			}
+			if (decl->next >= 0) {
+				decl = get_decl (unit, decl->next);
+			} else {
+				decl = 0;
+			}
+		} while (result && decl);
 	} else {
 		result = 1;
 	}
@@ -559,7 +855,14 @@ int		c_backend_translate_param_scope (struct unit *unit, int scope_index, struct
 		decl = get_decl (unit, scope->decl_begin);
 		do {
 			Assert (decl->kind == DeclKind (param));
-			result = c_backend_translate_type (unit, decl->type, decl->name, buffer);
+			if (decl->type >= 0) {
+				result = c_backend_translate_type (unit, decl->type, decl->name, buffer);
+			} else if (0 == strcmp (decl->name, "...")) {
+				write_string (buffer->wr, "...");
+			} else {
+				Error ("unexpected param decl");
+				result = 0;
+			}
 			if (decl->next >= 0) {
 				write_string (buffer->wr, ", ");
 			}

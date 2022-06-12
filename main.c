@@ -188,11 +188,10 @@ enum typekind {
 	TypeKind (group),
 	TypeKind (typeof),
 	TypeKind (decl),
-	TypeKind (accessor),
 };
 
 const char	*g_typekind[] = {
-	"basic", "tag", "mod", "group", "typeof", "decl", "accessor",
+	"basic", "tag", "mod", "group", "typeof", "decl", "external",
 };
 
 #define TypeMod(name) TypeMod_##name
@@ -211,13 +210,11 @@ enum tagtype {
 	TagType (invalid),
 	TagType (struct),
 	TagType (union),
-	TagType (stroke),
 	TagType (enum),
-	TagType (bitfield),
 };
 
 const char	*g_tagname[] = {
-	"invalid", "struct", "union", "stroke", "enum", "bitfield",
+	"invalid", "struct", "union", "enum",
 };
 
 int		is_tagtype (const char *string, enum tagtype *out) {
@@ -261,22 +258,17 @@ struct type_decl {
 	uint	is_volatile : 1;
 };
 
-struct type_accessor {
-	enum tagtype	tagtype;
-	const char		*tagname;
-};
-
 struct typemod_ptr {
 	uint	is_const : 1;
-	uint	is_restrict : 1;
 	uint	is_volatile : 1;
+	uint	is_restrict : 1;
 	int		type;
 };
 
 struct typemod_array {
 	uint	is_const : 1;
-	uint	is_restrict : 1;
 	uint	is_volatile : 1;
+	uint	is_restrict : 1;
 	uint	is_static : 1;
 	int		expr;
 	int		type;
@@ -305,7 +297,6 @@ struct type {
 		struct type_mod		mod;
 		struct type_typeof	typeof;
 		struct type_decl	decl;
-		struct type_accessor	accessor;
 	};
 };
 
@@ -320,7 +311,17 @@ enum declkind {
 	DeclKind (block),
 	DeclKind (enum),
 	DeclKind (accessor),
+	DeclKind (typeinfo),
+	DeclKind (external),
 };
+
+const char	*g_declkind[] = {
+	"var", "const", "tag", "func", "macro", "param", "block", "enum", "accessor", "typeinfo", "external",
+};
+
+int		is_declkind_meta (enum declkind declkind) {
+	return (declkind == DeclKind (accessor) || declkind == DeclKind (macro));
+}
 
 struct decl_const {
 	int		expr;
@@ -339,6 +340,7 @@ struct decl_macro {
 struct decl_tag {
 	enum tagtype	type;
 	int				scope;
+	int				member_table;
 };
 
 struct decl_block {
@@ -355,6 +357,10 @@ struct decl_accessor {
 	int				decl;
 };
 
+struct decl_param {
+	int		expr;
+};
+
 struct decl {
 	int				next;
 	const char		*name;
@@ -366,6 +372,7 @@ struct decl {
 		struct decl_tag		tag;
 		struct decl_func	func;
 		struct decl_macro	macro;
+		struct decl_param	param;
 		struct decl_block	block;
 		struct decl_enum	enumt;
 		struct decl_accessor	accessor;
@@ -450,10 +457,10 @@ enum exprtype {
 	ExprType (invalid),
 	ExprType (op),
 	ExprType (constant),
+	ExprType (string),
 	ExprType (identifier),
-	ExprType (decl),
-	ExprType (compound),
 	ExprType (funcparam),
+	ExprType (macroparam),
 	ExprType (typeinfo),
 };
 
@@ -539,17 +546,32 @@ struct exprop {
 	int				forward, backward;
 };
 
+struct expriden {
+	const char	*name;
+	int			decl;
+};
+
 struct exprfuncparam {
 	int		expr;
 	int		next;
 };
 
+struct exprmacroparam {
+	const char	*name;
+	int			decl;
+};
+
 struct exprtypeinfo {
 	int		type;
+	int		decl;
 };
 
 struct exprdecl {
 	int		index;
+};
+
+struct exprstr {
+	const char	*token;
 };
 
 struct expr {
@@ -557,22 +579,118 @@ struct expr {
 	union {
 		struct exprop			op;
 		struct expr_constant	constant;
-		const char				*identifier;
-		struct exprdecl			decl;
-		void					*compound;
+		struct expriden			iden;
+		struct exprstr			string;
 		struct exprfuncparam	funcparam;
+		struct exprmacroparam	macroparam;
 		struct exprtypeinfo		typeinfo;
 	};
 };
 
+#define Path_Kind(name) Path_Kind_##name
+enum path_kind {
+	Path_Kind (unit),
+	Path_Kind (function),
+	Path_Kind (macro),
+	Path_Kind (tag),
+	Path_Kind (decl),
+	Path_Kind (flow),
+	Path_Kind (type),
+	Path_Kind (expr),
+};
+
+struct path_unit {
+	int		index;
+};
+
+struct path_function {
+	int		decl;
+};
+
+struct path_macro {
+	int		decl;
+};
+
+struct path_tag {
+	int		decl;
+};
+
+struct path_decl {
+	int		index;
+};
+
+struct path_flow {
+	int		scope;
+	int		index;
+};
+
+struct path_type {
+	int		head;
+};
+
+struct path_expr {
+	int		head;
+};
+
+struct path {
+	enum path_kind	kind;
+	union {
+		struct path_unit		unit;
+		struct path_function	function;
+		struct path_macro		macro;
+		struct path_tag			tag;
+		struct path_decl		decl;
+		struct path_flow		flow;
+		struct path_type		type;
+		struct path_expr		expr;
+	};
+};
+
+struct typemember {
+	const char	*name;
+	int		typeinfo;
+	int		offset;
+	int		value;
+	int		decl_index;
+};
+
+#define TypeInfo_Kind(name) TypeInfo_Kind_##name
+enum typeinfo_kind {
+	TypeInfo_Kind (basic),
+	TypeInfo_Kind (struct),
+	TypeInfo_Kind (enum),
+	TypeInfo_Kind (union),
+	TypeInfo_Kind (pointer),
+	TypeInfo_Kind (array),
+	TypeInfo_Kind (function),
+};
+
+struct typeinfo {
+	usize	size;
+	int		count;
+	enum typeinfo_kind	kind;
+	enum basictype		basic;
+	const char	*tagname;
+	int		typeinfo;
+	int		members;
+	int		type_decl_index;
+};
+
 struct unit {
 	int				root_scope;
+	int				typeinfo_struct_decl;
+	int				link_decl_index;
+	struct path		*paths;
 	struct decl		*decls;
 	struct type		*types;
 	struct expr		*exprs;
 	struct flow		*flows;
 	struct scope	*scopes;
+	struct typeinfo		*typeinfos;
+	struct typemember	*typemembers;
 };
+
+struct path		**g_path = 0;
 
 struct typestack {
 	struct type	types[Max_Type_Depth];
@@ -581,19 +699,23 @@ struct typestack {
 	int			is_lvalue;
 };
 
-
 int		make_scope (struct unit *unit, enum scopekind kind, int parent);
 struct scope	*get_scope (struct unit *unit, int scope_index);
 struct decl	*get_decl (struct unit *unit, int index);
+struct flow	*get_flow (struct unit *unit, int index);
+int		get_flow_index (struct unit *unit, struct flow *flow);
+void	print_expr (struct unit *unit, int head_index, FILE *file);
 void	print_type (struct unit *unit, int head, FILE *file);
 
-
+#include "path.c"
 #include "expr.c"
 #include "type.c"
 #include "typestack.c"
 #include "scope.c"
 #include "link.c"
 #include "macro.c"
+#include "typeinfo.c"
+#include "unit.c"
 #include "writer.c"
 #include "cbackend.c"
 
@@ -677,7 +799,7 @@ int		main () {
 
 
 	int		head = -1;
-	if (parse_scope (unit, unit->root_scope, &tokens)) {
+	if (parse_unit (unit, &tokens)) {
 		print_scope (unit, unit->root_scope, 0, stdout);
 		if (link_unit (unit)) {
 			struct cbuffer	cbuffer;
@@ -689,15 +811,20 @@ int		main () {
 			c_backend_translate_unit (unit, &cbuffer);
 			printf ("%s", cbuffer.wr->buffer);
 			printf ("\n");
+			FILE *file = fopen ("ctest.c", "w");
+			fprintf (file, "%s", cbuffer.wr->buffer);
+			fclose (file);
 		} else {
-			Error ("cannot link unit");
+			Error ("cannot link");
 		}
 	} else {
-		Error ("cannot parse code scope");
+		Error ("cannot parse");
 	}
 
 
 	// parse_unit (unit, tokens);
+
+	printf ("END!\n");
 
 }
 

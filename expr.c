@@ -112,7 +112,7 @@ const char	*get_expr_name (struct expr *expr) {
 		snprintf (buffer, sizeof buffer, "c_%d", (int) expr->constant.value);
 		result = buffer;
 	} else if (expr->type == ExprType (identifier)) {
-		snprintf (buffer, sizeof buffer, "id_%s", expr->identifier);
+		snprintf (buffer, sizeof buffer, "id_%s", expr->iden.name);
 		result = buffer;
 	} else {
 		Error ("unknown expr type");
@@ -132,7 +132,8 @@ int		make_expr_identifier (struct unit *unit, const char *name) {
 
 		expr = Push_Array (unit->exprs);
 		expr->type = ExprType (identifier);
-		expr->identifier = name;
+		expr->iden.name = name;
+		expr->iden.decl = -1;
 		index = Get_Element_Index (unit->exprs, expr);
 	} else {
 		Error ("cannot prepare array for expr");
@@ -149,8 +150,40 @@ int		make_expr_constant (struct unit *unit, const char *string) {
 
 		expr = Push_Array (unit->exprs);
 		expr->type = ExprType (constant);
-		expr->constant.type = BasicType (int);
-		expr->constant.value = atoi (string);
+		if (strchr (string, '.')) {
+			if (string[strlen (string) - 1] == 'f') {
+				expr->constant.type = BasicType (float);
+				expr->constant.fvalue = atof (string);
+			} else {
+				expr->constant.type = BasicType (double);
+				expr->constant.fvalue = atof (string);
+			}
+		} else {
+			if (string[strlen (string) - 1] == 'u') {
+				expr->constant.type = BasicType (uint);
+				expr->constant.value = atoi (string);
+			} else {
+				expr->constant.type = BasicType (int);
+				expr->constant.value = atoi (string);
+			}
+		}
+		index = Get_Element_Index (unit->exprs, expr);
+	} else {
+		Error ("cannot prepare array for expr");
+		index = -1;
+	}
+	return (index);
+}
+
+int		make_expr_string (struct unit *unit, const char *token) {
+ 	int		index;
+
+	if (Prepare_Array (unit->exprs, 1)) {
+		struct expr	*expr;
+
+		expr = Push_Array (unit->exprs);
+		expr->type = ExprType (string);
+		expr->string.token = token;
 		index = Get_Element_Index (unit->exprs, expr);
 	} else {
 		Error ("cannot prepare array for expr");
@@ -230,6 +263,7 @@ int		make_expr_op_from_token (struct unit *unit, char *token, struct exprstate *
 		type_index = cast->op.backward;
 		cast->type = ExprType (typeinfo);
 		cast->typeinfo.type = type_index;
+		cast->typeinfo.decl = -1;
 		state->is_post_value = 1;
 		state->is_incomplete = 0;
 		state->last_cast_index = -1;
@@ -513,6 +547,25 @@ void	parse_expr_rec (struct unit *unit, char **ptokens, int *phead, struct exprs
 			state->is_incomplete = 0;
 			state->last_cast_index = -1;
 		}
+	} else if (state->is_incomplete && (*ptokens)[-1] == Token (string)) {
+		int		expr_index;
+
+		expr_index = make_expr_string (unit, *ptokens);
+		if (expr_index >= 0) {
+			if (*phead >= 0) {
+				*phead = link_expr_op (unit, get_expr (unit, *phead), *phead, get_expr (unit, expr_index), expr_index);
+			} else {
+				*phead = expr_index;
+			}
+		} else {
+			state->result = 0;
+		}
+		if (state->result) {
+			*ptokens = next_token (*ptokens, 0);
+			state->is_post_value = 1;
+			state->is_incomplete = 0;
+			state->last_cast_index = -1;
+		}
 	} else if (state->is_post_value || *phead < 0 || state->last_cast_index >= 0) {
 		state->is_missing_token = 1;
 	} else {
@@ -540,6 +593,7 @@ int		parse_expr (struct unit *unit, char **ptokens, int *out) {
 			type_index = cast->op.backward;
 			cast->type = ExprType (typeinfo);
 			cast->typeinfo.type = type_index;
+			cast->typeinfo.decl = -1;
 			state.result = 1;
 		} else {
 			Error ("expr parsing is ended with incomplete expr tree");
@@ -606,10 +660,18 @@ void	print_expr (struct unit *unit, int head_index, FILE *file) {
 			}
 		} break ;
 		case ExprType (identifier): {
-			fprintf (file, "%s", head->identifier);
+			fprintf (file, "%s", head->iden.name);
 		} break ;
 		case ExprType (constant): {
-			fprintf (file, "%d", (int) head->constant.value);
+			if (is_basictype_integral (head->constant.type)) {
+				if (is_basictype_signed (head->constant.type)) {
+					fprintf (file, "%zd", head->constant.value);
+				} else {
+					fprintf (file, "%zu", head->constant.uvalue);
+				}
+			} else {
+				fprintf (file, "%f", head->constant.fvalue);
+			}
 		} break ;
 		case ExprType (funcparam): {
 			if (head->funcparam.expr >= 0) {
@@ -625,12 +687,17 @@ void	print_expr (struct unit *unit, int head_index, FILE *file) {
 			print_type (unit, head->typeinfo.type, file);
 			fprintf (file, "]");
 		} break ;
-		case ExprType (decl): {
-			struct decl	*decl;
+		case ExprType (macroparam): {
+			fprintf (file, "%s", head->macroparam.name);
+		} break ;
+		case ExprType (string): {
+			const char	*token;
+			usize		size;
+			char		string[4 * 1024];
 
-			decl = get_decl (unit, head->decl.index);
-			Assert (decl->kind != DeclKind (tag));
-			fprintf (file, "%s", decl->name);
+			token = head->string.token;
+			unescape_string (&token, string, sizeof string, &size);
+			fprintf (file, "\"%s\"", string);
 		} break ;
 		default: {
 			Error ("unknown %d %d", head->type, head_index);
@@ -681,7 +748,7 @@ void	print_expr_table (struct unit *unit, int head_index, FILE *file) {
 			}
 		} break ;
 		case ExprType (identifier): {
-			fprintf (file, "%*.s%s\t\t\t%d\n", level * 2, "", head->identifier, head_index);
+			fprintf (file, "%*.s%s\t\t\t%d\n", level * 2, "", head->iden.name, head_index);
 		} break ;
 		case ExprType (constant): {
 			fprintf (file, "%*.s%d\t\t\t%d\n", level * 2, "", (int) head->constant.value, head_index);
@@ -705,7 +772,6 @@ void	print_expr_table (struct unit *unit, int head_index, FILE *file) {
 	}
 	level -= 1;
 }
-
 
 
 

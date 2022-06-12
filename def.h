@@ -14,11 +14,16 @@
 
 #if defined(No_Error_Messages) || defined(No_Messages)
 #	define Error(...)
+#	define Code_Error(...)
 #else
 #	define Error(...) \
 do {fprintf (stderr, "Error:%s:%d: ", __func__, __LINE__);\
 	fprintf (stderr, __VA_ARGS__);\
 	fprintf (stderr, "\n");\
+} while (0)
+#	define Code_Error(unit, ...) \
+do {Error (__VA_ARGS__);\
+	print_path (unit, (unit)->paths, stderr);\
 } while (0)
 #endif
 

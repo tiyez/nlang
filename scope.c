@@ -223,10 +223,10 @@ int		make_func_decl (struct unit *unit, int scope_index, const char *name, int t
 	return (index);
 }
 
-int		make_macro_decl (struct unit *unit, int scope_index, const char *name, int type, int scope, int param_scope) {
+int		make_macro_decl (struct unit *unit, int scope_index, const char *name, int scope, int param_scope) {
 	int		index;
 
-	index = make_decl (unit, scope_index, name, type, DeclKind (macro));
+	index = make_decl (unit, scope_index, name, -1, DeclKind (macro));
 	if (index >= 0) {
 		struct decl	*decl;
 
@@ -247,6 +247,7 @@ int		make_tag_decl (struct unit *unit, int scope_index, const char *name, int ty
 		decl = get_decl (unit, index);
 		decl->tag.type = tagtype;
 		decl->tag.scope = scope;
+		decl->tag.member_table = -1;
 	}
 	return (index);
 }
@@ -274,7 +275,7 @@ int		make_enum_decl (struct unit *unit, int scope_index, const char *name, int e
 int		make_accessor_decl (struct unit *unit, int scope_index, const char *name, enum tagtype tagtype, const char *tagname) {
 	int		index;
 
-	index = make_decl (unit, scope_index, name, make_accessor_type (unit, tagtype, tagname), DeclKind (accessor));
+	index = make_decl (unit, scope_index, name, -1, DeclKind (accessor));
 	if (index >= 0) {
 		struct decl	*decl;
 
@@ -283,6 +284,33 @@ int		make_accessor_decl (struct unit *unit, int scope_index, const char *name, e
 		decl->accessor.name = tagname;
 		decl->accessor.decl = -1;
 	}
+	return (index);
+}
+
+int		make_param_decl (struct unit *unit, int scope_index, const char *name, int type_index) {
+	int		index;
+
+	index = make_decl (unit, scope_index, name, type_index, DeclKind (param));
+	if (index >= 0) {
+		struct decl	*decl;
+
+		decl = get_decl (unit, index);
+		decl->param.expr = -1;
+	}
+	return (index);
+}
+
+int		make_typeinfo_decl (struct unit *unit, int type_index) {
+	int		index;
+
+	index = make_decl (unit, unit->root_scope, 0, type_index, DeclKind (typeinfo));
+	return (index);
+}
+
+int		make_external_decl (struct unit *unit, int scope_index, const char *name, int type_index) {
+	int		index;
+
+	index = make_decl (unit, scope_index, name, type_index, DeclKind (external));
 	return (index);
 }
 
@@ -452,7 +480,7 @@ int		parse_code_scope_flow (struct unit *unit, int scope_index, char **ptokens, 
 					Assert (*out >= 0);
 					result = 1;
 				} else {
-					Error ("unexpected token [%s]", *ptokens);
+					Error ("unexpected token [%s]; expecting ';'", *ptokens);
 					result = 0;
 				}
 			} else {
@@ -637,6 +665,39 @@ int		parse_const_decl_flow (struct unit *unit, int scope_index, char **ptokens, 
 	return (result);
 }
 
+int		parse_external_decl_flow (struct unit *unit, int scope_index, char **ptokens, int *out) {
+	int		result;
+	const char	*name;
+
+	Assert (is_token (*ptokens, Token (identifier), "external"));
+	*ptokens = next_token (*ptokens, 0);
+	if ((*ptokens)[-1] == Token (identifier)) {
+		int		type_index;
+
+		name = *ptokens;
+		*ptokens = next_token (*ptokens, 0);
+		if (parse_type (unit, ptokens, &type_index)) {
+			if (is_token (*ptokens, Token (punctuator), ";")) {
+				int		decl;
+
+				decl = make_external_decl (unit, scope_index, name, type_index);
+				*out = make_decl_flow (unit, decl);
+				*ptokens = next_token (*ptokens, 0);
+				result = 1;
+			} else {
+				Error ("unexpected token");
+				result = 0;
+			}
+		} else {
+			result = 0;
+		}
+	} else {
+		Error ("unexpected token");
+		result = 0;
+	}
+	return (result);
+}
+
 int		parse_macro_decl_flow (struct unit *unit, int scope_index, char **ptokens, int *out);
 
 int		parse_unit_scope_flow (struct unit *unit, int scope_index, char **ptokens, int *out) {
@@ -654,6 +715,8 @@ int		parse_unit_scope_flow (struct unit *unit, int scope_index, char **ptokens, 
 			result = parse_const_decl_flow (unit, scope_index, ptokens, out);
 		} else if (0 == strcmp (*ptokens, "macro")) {
 			result = parse_macro_decl_flow (unit, scope_index, ptokens, out);
+		} else if (0 == strcmp (*ptokens, "external")) {
+			result = parse_external_decl_flow (unit, scope_index, ptokens, out);
 		} else {
 			const char	*name;
 			int			type_index;
@@ -864,12 +927,10 @@ int		parse_tag_scope_flow (struct unit *unit, int scope_index, char **ptokens, e
 
 	switch (tagtype) {
 		case TagType (struct):
-		case TagType (union):
-		case TagType (stroke): {
+		case TagType (union): {
 			result = parse_struct_tag_scope_flow (unit, scope_index, ptokens, out);
 		} break ;
-		case TagType (enum):
-		case TagType (bitfield): {
+		case TagType (enum): {
 			result = parse_enum_tag_scope_flow (unit, scope_index, ptokens, out);
 		} break ;
 		default: Unreachable ();
@@ -945,12 +1006,8 @@ void	print_scope_flow (struct unit *unit, int flow_index, int indent, enum scope
 						fprintf (file, "%*.sstruct %s {\n", indent * 4, "", decl->name);
 					} else if (decl->tag.type == TagType (union)) {
 						fprintf (file, "%*.sunion %s {\n", indent * 4, "", decl->name);
-					} else if (decl->tag.type == TagType (stroke)) {
-						fprintf (file, "%*.sstroke %s {\n", indent * 4, "", decl->name);
 					} else if (decl->tag.type == TagType (enum)) {
 						fprintf (file, "%*.senum %s {\n", indent * 4, "", decl->name);
-					} else if (decl->tag.type == TagType (bitfield)) {
-						fprintf (file, "%*.sbitfield %s {\n", indent * 4, "", decl->name);
 					} else {
 						Unreachable ();
 					}
@@ -978,6 +1035,34 @@ void	print_scope_flow (struct unit *unit, int flow_index, int indent, enum scope
 				} break ;
 				case DeclKind (accessor): {
 					fprintf (file, "%*.saccessor %s %s %s;\n", indent * 4, "", decl->name, g_tagname[decl->accessor.tagtype], decl->accessor.name);
+				} break ;
+				case DeclKind (macro): {
+					struct scope	*scope;
+
+					fprintf (file, "%*.smacro %s (", indent * 4, "", decl->name);
+					scope = get_scope (unit, decl->macro.param_scope);
+					if (scope->decl_begin >= 0) {
+						struct decl		*param;
+
+						param = get_decl (unit, scope->decl_begin);
+						do {
+							if (param->next >= 0) {
+								fprintf (file, "%s, ", param->name);
+								param = get_decl (unit, param->next);
+							} else {
+								fprintf (file, "%s", param->name);
+								param = 0;
+							}
+						} while (param);
+					}
+					fprintf (file, ") {\n");
+					print_scope (unit, decl->macro.scope, indent + 1, file);
+					fprintf (file, "%.*s}\n", indent * 4, "");
+				} break ;
+				case DeclKind (external): {
+					fprintf (file, "%*.sexternal %s ", indent * 4, "", decl->name);
+					print_type (unit, decl->type, file);
+					fprintf (file, ";\n");
 				} break ;
 				default: {
 					Error ("unknown decl kind %d", decl->kind);
@@ -1139,14 +1224,13 @@ int		check_scope_declarations_for_name_uniqueness (struct unit *unit, int scope_
 	if (scope->kind == ScopeKind (unit)) {
 		result = check_scope_tag_declarations_for_name_uniqueness (unit, scope_index, TagType (struct)) &&
 				check_scope_tag_declarations_for_name_uniqueness (unit, scope_index, TagType (union)) &&
-				check_scope_tag_declarations_for_name_uniqueness (unit, scope_index, TagType (stroke)) &&
 				check_scope_tag_declarations_for_name_uniqueness (unit, scope_index, TagType (enum)) &&
-				check_scope_tag_declarations_for_name_uniqueness (unit, scope_index, TagType (bitfield)) &&
 				check_scope_ordinary_declarations_for_name_uniqueness (unit, scope_index);
 	} else {
 		result = check_scope_ordinary_declarations_for_name_uniqueness (unit, scope_index);
 	}
 	return (result);
 }
+
 
 

@@ -32,6 +32,7 @@ int		push_typestack (struct typestack *typestack, struct type *type) {
 		// Debug ("type kind %s; head kind is %s", g_typekind[type->kind], g_typekind[get_typestack_head (typestack)->kind]);
 		Assert (type->kind == TypeKind (mod));
 		Assert (typestack->types_count > 0 && typestack->types_count < Max_Type_Depth);
+		Assert (typestack->head >= 0);
 		typestack->types[typestack->types_count] = *type;
 		type = typestack->types + typestack->types_count;
 		switch (type->mod.kind) {
@@ -53,7 +54,6 @@ int		push_typestack_recursive (struct unit *unit, struct typestack *typestack, i
 
 	type = get_type (unit, type_index);
 	switch (type->kind) {
-		case TypeKind (accessor):
 		case TypeKind (tag):
 		case TypeKind (basic): {
 			result = push_typestack (typestack, type);
@@ -74,6 +74,8 @@ int		push_typestack_recursive (struct unit *unit, struct typestack *typestack, i
 			decl = get_decl (unit, type->decl.index);
 			if (decl->type >= 0) {
 				result = push_typestack_recursive (unit, typestack, decl->type);
+			} else if (is_declkind_meta (decl->kind)) {
+				result = push_typestack (typestack, type);
 			} else {
 				Error ("decl doesn't have a type");
 				result = 0;

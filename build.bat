@@ -3,7 +3,7 @@
 SETLOCAL
 
 
-cl.exe /nologo main.c
+cl.exe /nologo /Z7 main.c
 
 
 ENDLOCAL

@@ -163,23 +163,6 @@ int		make_decl_type (struct unit *unit, int decl_index) {
 	return (index);
 }
 
-int		make_accessor_type (struct unit *unit, enum tagtype tagtype, const char *tagname) {
-	int		index;
-
-	if (Prepare_Array (unit->types, 1)) {
-		struct type	*type;
-
-		type = Push_Array (unit->types);
-		type->kind = TypeKind (accessor);
-		type->accessor.tagtype = tagtype;
-		type->accessor.tagname = tagname;
-		index = Get_Element_Index (unit->types, type);
-	} else {
-		index = -1;
-	}
-	return (index);
-}
-
 struct typestate {
 	int		group_level;
 	int		level;
@@ -303,7 +286,7 @@ int		parse_type_ (struct unit *unit, char **ptokens, int *phead, struct typestat
 						name = *ptokens;
 						*ptokens = next_token (*ptokens, 0);
 						if (parse_type (unit, ptokens, &type_index)) {
-							make_decl (unit, scope_index, name, type_index, DeclKind (param));
+							make_param_decl (unit, scope_index, name, type_index);
 							if (is_token (*ptokens, Token (punctuator), ")")) {
 								is_continue = 0;
 							} else if (!is_token (*ptokens, Token (punctuator), ",")) {
@@ -317,6 +300,15 @@ int		parse_type_ (struct unit *unit, char **ptokens, int *phead, struct typestat
 						}
 					} else if (is_token (*ptokens, Token (punctuator), ")")) {
 						is_continue = 0;
+					} else if (is_token (*ptokens, Token (punctuator), "...")) {
+						make_param_decl (unit, scope_index, "...", -1);
+						*ptokens = next_token (*ptokens, 0);
+						if (is_token (*ptokens, Token (punctuator), ")")) {
+							is_continue = 0;
+						} else {
+							Error ("unexpected token");
+							result = 0;
+						}
 					} else {
 						Error ("unexpected token %s", *ptokens);
 						result = 0;
@@ -482,11 +474,11 @@ int		parse_type (struct unit *unit, char **ptokens, int *out) {
 
 }
 
-void	print_type (struct unit *unit, int head, FILE *file) {
+void	print_type_gen (struct unit *unit, void *owner, int head, FILE *file, struct type *(*get_type) (void *owner, int index)) {
 	struct type	*type;
 
 	Assert (head >= 0);
-	type = get_type (unit, head);
+	type = get_type (owner, head);
 	switch (type->kind) {
 		case TypeKind (basic): {
 			if (type->basic.is_const) {
@@ -515,11 +507,11 @@ void	print_type (struct unit *unit, int head, FILE *file) {
 			struct decl	*decl;
 
 			decl = get_decl (unit, type->decl.index);
-			print_type (unit, decl->type, file);
+			print_type_gen (unit, owner, decl->type, file, get_type);
 		} break ;
 		case TypeKind (group): {
 			fprintf (file, "(");
-			print_type (unit, type->group.type, file);
+			print_type_gen (unit, owner, type->group.type, file, get_type);
 			fprintf (file, ")");
 		} break ;
 		case TypeKind (mod): {
@@ -535,11 +527,11 @@ void	print_type (struct unit *unit, int head, FILE *file) {
 						fprintf (file, "restrict ");
 					}
 					fprintf (file, "*");
-					Assert (type->mod.ptr.type);
-					print_type (unit, type->mod.ptr.type, file);
+					Assert (type->mod.ptr.type >= 0);
+					print_type_gen (unit, owner, type->mod.ptr.type, file, get_type);
 				} break ;
 				case TypeMod (array): {
-					print_type (unit, type->mod.array.type, file);
+					print_type_gen (unit, owner, type->mod.array.type, file, get_type);
 					if (type->mod.array.expr >= 0) {
 						fprintf (file, "[");
 						print_expr (unit, type->mod.array.expr, file);
@@ -549,7 +541,7 @@ void	print_type (struct unit *unit, int head, FILE *file) {
 					}
 				} break ;
 				case TypeMod (function): {
-					print_type (unit, type->mod.func.type, file);
+					print_type_gen (unit, owner, type->mod.func.type, file, get_type);
 					if (type->mod.func.param_scope >= 0) {
 						struct scope	*scope;
 						struct decl		*decl;
@@ -558,8 +550,14 @@ void	print_type (struct unit *unit, int head, FILE *file) {
 						scope = get_scope (unit, type->mod.func.param_scope);
 						decl = scope->decl_begin < 0 ? 0 : get_decl (unit, scope->decl_begin);
 						while (decl) {
-							fprintf (file, "%s ", decl->name);
-							print_type (unit, decl->type, file);
+							if (decl->type >= 0) {
+								fprintf (file, "%s ", decl->name);
+								print_type_gen (unit, owner, decl->type, file, get_type);
+							} else {
+								Assert (0 == strcmp (decl->name, "..."));
+								Assert (decl->next < 0);
+								fprintf (file, "...");
+							}
 							if (decl->next >= 0) {
 								fprintf (file, ", ");
 								decl = get_decl (unit, decl->next);
@@ -574,6 +572,18 @@ void	print_type (struct unit *unit, int head, FILE *file) {
 				} break ;
 			}
 		} break ;
+	}
+}
+
+void	print_type (struct unit *unit, int head, FILE *file) {
+	print_type_gen (unit, unit, head, file, get_type);
+}
+
+struct type	*get_typestack_type (struct typestack *typestack, int index);
+
+void	print_typestack (struct unit *unit, struct typestack *typestack, FILE *file) {
+	if (typestack->types_count >= 0) {
+		print_type_gen (unit, typestack, typestack->head, file, get_typestack_type);
 	}
 }
 
@@ -634,6 +644,69 @@ int		is_functype_returnable (struct unit *unit, int type_index) {
 	}
 	return (!(type->kind == TypeKind (basic) && type->basic.type == BasicType (void)));
 }
+
+void	get_cvr (struct type *type, int cvr[3]) {
+	switch (type->kind) {
+		case TypeKind (basic): {
+			cvr[0] = type->basic.is_const;
+			cvr[1] = type->basic.is_volatile;
+			cvr[2] = 0;
+		} break ;
+		case TypeKind (tag): {
+			cvr[0] = type->tag.is_const;
+			cvr[1] = type->tag.is_volatile;
+			cvr[2] = 0;
+		} break ;
+		case TypeKind (mod): {
+			switch (type->mod.kind) {
+				case TypeMod (pointer): {
+					cvr[0] = type->mod.ptr.is_const;
+					cvr[1] = type->mod.ptr.is_volatile;
+					cvr[2] = type->mod.ptr.is_restrict;
+				} break ;
+				case TypeMod (array): {
+					cvr[0] = type->mod.array.is_const;
+					cvr[1] = type->mod.array.is_volatile;
+					cvr[2] = type->mod.array.is_restrict;
+				} break ;
+				case TypeMod (function): {
+					cvr[0] = 0;
+					cvr[1] = 0;
+					cvr[2] = 0;
+				} break ;
+			}
+		} break ;
+		case TypeKind (group): {
+			Assert (!"cannot get cvr from group type");
+		} break ;
+		case TypeKind (typeof): {
+			cvr[0] = type->typeof.is_const;
+			cvr[1] = type->typeof.is_volatile;
+			cvr[2] = 0;
+		} break ;
+		case TypeKind (decl): {
+			cvr[0] = type->decl.is_const;
+			cvr[1] = type->decl.is_volatile;
+			cvr[2] = 0;
+		} break ;
+		default: Unreachable ();
+	}
+}
+
+int		is_same_cvr (struct type *left, struct type *right) {
+	int		left_cvr[3], right_cvr[3];
+
+	get_cvr (left, left_cvr);
+	get_cvr (right, right_cvr);
+	return (0 == memcmp (left_cvr, right_cvr));
+}
+
+
+
+
+
+
+
 
 
 

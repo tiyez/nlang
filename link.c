@@ -4,8 +4,6 @@
 */
 
 
-int		g_link_decl_index;
-
 int		find_ordinary_decl (struct unit *unit, int scope_index, const char *name) {
 	int		decl_index;
 	struct scope	*scope;
@@ -18,8 +16,8 @@ int		find_ordinary_decl (struct unit *unit, int scope_index, const char *name) {
 
 		decl = get_decl (unit, scope->decl_begin);
 		do {
-			if (scope->kind == ScopeKind (unit) || get_decl_index (unit, decl) <= g_link_decl_index) {
-				if (decl->kind != DeclKind (tag) && 0 == strcmp (name, decl->name)) {
+			if (scope->kind == ScopeKind (unit) || get_decl_index (unit, decl) <= unit->link_decl_index) {
+				if (decl->kind != DeclKind (tag) && decl->name && 0 == strcmp (name, decl->name)) {
 					decl_index = get_decl_index (unit, decl);
 				}
 				result = 1;
@@ -50,7 +48,7 @@ int		find_decl_tag (struct unit *unit, int scope_index, const char *name, enum t
 
 		decl = get_decl (unit, scope->decl_begin);
 		do {
-			if (scope->kind == ScopeKind (unit) || get_decl_index (unit, decl) <= g_link_decl_index) {
+			if (scope->kind == ScopeKind (unit) || get_decl_index (unit, decl) <= unit->link_decl_index) {
 				if (decl->kind == DeclKind (tag) && decl->tag.type == tagtype && 0 == strcmp (name, decl->name)) {
 					decl_index = get_decl_index (unit, decl);
 				}
@@ -136,28 +134,27 @@ int		link_enum_expr (struct unit *unit, int scope_index, int decl_index, int exp
 						Todo ();
 					} break ;
 					case TagType (enum): {
-						decl_index = find_enum_by_name (unit, decl->tag.scope, expr->identifier);
+						decl_index = find_enum_by_name (unit, decl->tag.scope, expr->iden.name);
 						if (decl_index >= 0) {
-							expr->type = ExprType (decl);
-							expr->decl.index = decl_index;
+							expr->iden.decl = decl_index;
 							result = 1;
 						} else {
-							Error ("cannot find '%s' in the enum %s", expr->identifier, decl->name);
+							Code_Error (unit, "cannot find '%s' in the enum %s", expr->iden.name, decl->name);
 							result = 0;
 						}
 					} break ;
 					default: Unreachable ();
 				}
 			} else {
-				Error ("invalid accessor parameter");
+				Code_Error (unit, "invalid accessor parameter");
 				result = 0;
 			}
 		} else {
-			Error ("accessor call must have only one parameter");
+			Code_Error (unit, "accessor call must have only one parameter");
 			result = 0;
 		}
 	} else {
-		Error ("empty accessor call");
+		Code_Error (unit, "empty accessor call");
 		result = 0;
 	}
 	return (result);
@@ -236,7 +233,7 @@ enum basictype	get_common_basictype (enum basictype left, enum basictype right) 
 	return (result);
 }
 
-int		is_same_type (struct typestack *leftstack, struct typestack *rightstack) {
+int		is_same_type (struct typestack *leftstack, struct typestack *rightstack, int is_void_aceptable) {
 	int			result;
 	struct type	*left, *right;
 
@@ -244,7 +241,13 @@ int		is_same_type (struct typestack *leftstack, struct typestack *rightstack) {
 	right = get_typestack_head (rightstack);
 	if (left->kind == right->kind) {
 		if (left->kind == TypeKind (basic)) {
-			result = (left->basic.type == right->basic.type);
+			if (left->basic.type == right->basic.type) {
+				result = 1;
+			} else if (is_void_aceptable && (left->basic.type == BasicType (void) || right->basic.type == BasicType (void))) {
+				result = 1;
+			} else {
+				result = 0;
+			}
 		} else if (left->kind == TypeKind (tag)) {
 			result = (left->tag.type == right->tag.type && 0 == strcmp (left->tag.name, right->tag.name));
 		} else if (left->kind == TypeKind (mod)) {
@@ -254,11 +257,11 @@ int		is_same_type (struct typestack *leftstack, struct typestack *rightstack) {
 			righttype = *right;
 			pop_typestack (leftstack);
 			pop_typestack (rightstack);
-			result = is_same_type (leftstack, rightstack);
+			result = is_same_type (leftstack, rightstack, is_void_aceptable);
 			push_typestack (leftstack, &lefttype);
 			push_typestack (rightstack, &righttype);
-		} else if (left->kind == TypeKind (accessor)) {
-			result = 1;
+		} else if (left->kind == TypeKind (decl)) {
+			result = left->decl.index == right->decl.index;
 		} else {
 			Unreachable ();
 		}
@@ -268,7 +271,7 @@ int		is_same_type (struct typestack *leftstack, struct typestack *rightstack) {
 	return (result);
 }
 
-int		is_implicit_castable (struct typestack *leftstack, struct typestack *rightstack) {
+int		is_implicit_castable (struct unit *unit, struct typestack *leftstack, struct typestack *rightstack, int overwrite_right) {
 	int		result;
 	struct type	*left;
 	struct type	*right;
@@ -277,14 +280,19 @@ int		is_implicit_castable (struct typestack *leftstack, struct typestack *rights
 	right = get_typestack_head (rightstack);
 	Assert (left);
 	Assert (right);
-	if (right->kind == TypeKind (accessor) || left->kind == TypeKind (accessor)) {
-		Error ("accessor type cast is undefined");
+	if (right->kind == TypeKind (decl) || left->kind == TypeKind (decl)) {
+		Error ("meta type cast is undefined");
 		result = 0;
 	} else switch (left->kind) {
 		case TypeKind (basic): {
 			switch (right->kind) {
 				case TypeKind (basic): {
-					if (BasicType (void) != get_common_basictype (right->basic.type, left->basic.type)) {
+					enum basictype	common;
+
+					if (BasicType (void) != (common = get_common_basictype (right->basic.type, left->basic.type))) {
+						if (overwrite_right) {
+							right->basic.type = common;
+						}
 						result = 1;
 					} else {
 						Error ("cannot cast %s to %s", get_basictype_name (right->basic.type), get_basictype_name (left->basic.type));
@@ -295,8 +303,17 @@ int		is_implicit_castable (struct typestack *leftstack, struct typestack *rights
 					result = 0;
 				} break ;
 				case TypeKind (mod): {
-					Error ("cannot implicit cast pointer type to basic");
-					result = 0;
+					if (right->mod.kind == TypeMod (pointer)) {
+						if (is_basictype_integral (left->basic.type)) {
+							result = 1;
+						} else {
+							Error ("cannot use non-integral type for pointer stuff");
+							result = 0;
+						}
+					} else {
+						Error ("cannot implicit cast %s type to basic", g_typemod[right->mod.kind]);
+						result = 0;
+					}
 				} break ;
 				default: Unreachable ();
 			}
@@ -328,7 +345,7 @@ int		is_implicit_castable (struct typestack *leftstack, struct typestack *rights
 					righttype = *right;
 					pop_typestack (leftstack);
 					pop_typestack (rightstack);
-					result = is_same_type (leftstack, rightstack);
+					result = is_same_type (leftstack, rightstack, 0);
 					push_typestack (leftstack, &lefttype);
 					push_typestack (rightstack, &righttype);
 				} else if (left->mod.kind == TypeMod (function)) {
@@ -337,11 +354,27 @@ int		is_implicit_castable (struct typestack *leftstack, struct typestack *rights
 				} else if (right->mod.kind == TypeMod (function)) {
 					Error ("illegal function type");
 					result = 0;
-				} else {
-					result = is_same_type (leftstack, rightstack);
-					if (!result) {
+				} else if (left->mod.kind == right->mod.kind && left->mod.kind == TypeMod (pointer)) {
+					if (is_same_type (leftstack, rightstack, 1)) {
+						result = 1;
+					} else {
 						Error ("type mismatch");
+						result = 0;
 					}
+				} else {
+					if (is_same_type (leftstack, rightstack, 0)) {
+						result = 1;
+					} else {
+						Error ("type mismatch");
+						result = 0;
+					}
+				}
+			} else if (right->kind == TypeKind (basic)) {
+				if (is_basictype_integral (right->basic.type)) {
+					result = 1;
+				} else {
+					Error ("cannot use non-integral type for pointer stuff");
+					result = 0;
 				}
 			} else {
 				Error ("cannot implicit cast type");
@@ -349,6 +382,15 @@ int		is_implicit_castable (struct typestack *leftstack, struct typestack *rights
 			}
 		} break ;
 		default: Unreachable ();
+	}
+	if (!result) {
+		FILE	*file = stderr;
+
+		fprintf (file, "\nleft type: ");
+		print_typestack (unit, leftstack, file);
+		fprintf (file, "\nright type: ");
+		print_typestack (unit, rightstack, file);
+		fprintf (file, "\n\n");
 	}
 	return (result);
 }
@@ -362,47 +404,66 @@ int		link_funcparams (struct unit *unit, int scope_index, int param_scope_index,
 	if (param_scope->decl_begin >= 0) {
 		if (expr_index >= 0) {
 			struct decl	*decl;
+			int			is_continue = 1;
 
 			decl = get_decl (unit, param_scope->decl_begin);
 			do {
-				if (expr_index >= 0) {
+				push_decl_path (unit, get_decl_index (unit, decl));
+				if (expr_index >= 0 && (decl->type >= 0 || 0 == strcmp (decl->name, "..."))) {
 					struct typestack	ctypestack, *typestack = &ctypestack;
 
+					push_expr_path (unit, expr_index);
 					expr = get_expr (unit, expr_index);
 					Assert (expr->type == ExprType (funcparam));
 					Assert (expr->funcparam.expr >= 0);
 					init_typestack (typestack);
 					if (link_expr (unit, scope_index, expr->funcparam.expr, 0, typestack)) {
-						struct typestack	leftstack;
+						if (decl->type >= 0) {
+							struct typestack	leftstack;
 
-						init_typestack (&leftstack);
-						push_typestack_recursive (unit, &leftstack, decl->type);
-						if (is_implicit_castable (&leftstack, typestack)) {
+							init_typestack (&leftstack);
+							push_typestack_recursive (unit, &leftstack, decl->type);
+							if (is_implicit_castable (unit, &leftstack, typestack, 0)) {
+								expr_index = expr->funcparam.next;
+								result = 1;
+							} else {
+								Code_Error (unit, "parameter type mismatch");
+								result = 0;
+							}
+						} else {
 							expr_index = expr->funcparam.next;
 							result = 1;
-						} else {
-							Error ("parameter type mismatch");
-							result = 0;
 						}
 					} else {
 						result = 0;
 					}
+					pop_path (unit);
+				} else if (decl->type < 0 && 0 == strcmp (decl->name, "...")) {
+					result = 1;
+					is_continue = 0;
 				} else {
-					Error ("too few arguments");
+					Code_Error (unit, "too few arguments");
 					result = 0;
 				}
-				decl = decl->next >= 0 ? get_decl (unit, decl->next) : 0;
-			} while (result && decl);
+				pop_path (unit);
+				if (decl->next >= 0) {
+					decl = get_decl (unit, decl->next);
+				} else if (decl->type < 0 && 0 == strcmp (decl->name, "...")) {
+					result = 1;
+				} else {
+					decl = 0;
+				}
+			} while (result && decl && is_continue);
 			if (result && expr_index >= 0) {
-				Error ("too many arguments");
+				Code_Error (unit, "too many arguments");
 				result = 0;
 			}
 		} else {
-			Error ("too few arguments");
+			Code_Error (unit, "too few arguments");
 			result = 0;
 		}
 	} else if (expr_index >= 0) {
-		Error ("too many arguments");
+		Code_Error (unit, "too many arguments");
 		result = 0;
 	} else {
 		result = 1;
@@ -423,31 +484,34 @@ int		link_member_access (struct unit *unit, int decl_index, int expr_index, stru
 		if (expr->type == ExprType (identifier)) {
 			int		member_decl;
 
-			member_decl = find_struct_member (unit, decl->tag.scope, expr->identifier);
+			member_decl = find_struct_member (unit, decl->tag.scope, expr->iden.name);
 			if (member_decl >= 0) {
 				decl = get_decl (unit, member_decl);
 				if (decl->type >= 0) {
 					result = push_typestack_recursive (unit, typestack, decl->type);
-					expr->type = ExprType (decl);
-					expr->decl.index = member_decl;
+					expr->iden.decl = member_decl;
 				} else {
-					Error ("untyped member '%s' in struct %s", expr->identifier, decl->name);
+					Code_Error (unit, "untyped member '%s' in struct %s", expr->iden.name, decl->name);
 					result = 0;
 				}
 			} else {
-				Error ("cannot find '%s' member in struct %s", expr->identifier, decl->name);
+				Code_Error (unit, "cannot find '%s' member in struct %s", expr->iden.name, decl->name);
 				result = 0;
 			}
 		} else {
-			Error ("invalid member access operand");
+			Code_Error (unit, "invalid member access operand");
 			result = 0;
 		}
 	} else {
-		Error ("member access for non-struct value");
+		Code_Error (unit, "member access for non-struct value");
 		result = 0;
 	}
 	return (result);
 }
+
+int		link_typeinfo (struct unit *unit, int type_index, int *out);
+
+int		link_macro_eval (struct unit *unit, int scope_index, int decl_index, int expr_index, struct typestack *typestack);
 
 int		link_expr (struct unit *unit, int scope_index, int expr_index, int is_selfref_check, struct typestack *typestack) {
 	int		result;
@@ -459,13 +523,22 @@ int		link_expr (struct unit *unit, int scope_index, int expr_index, int is_selfr
 			switch (expr->op.type) {
 				case OpType (function_call): {
 					if (link_expr (unit, scope_index, expr->op.forward, is_selfref_check, typestack)) {
-						if (typestack->types_count == 1 && get_typestack_head (typestack)->kind == TypeKind (accessor)) {
+						if (typestack->types_count == 1 && get_typestack_head (typestack)->kind == TypeKind (decl)) {
 							struct type	*head;
+							struct decl	*decl;
 
-							result = link_enum_expr (unit, scope_index, get_expr (unit, expr->op.forward)->decl.index, expr->op.backward);
 							head = get_typestack_head (typestack);
-							head->kind = TypeKind (basic);
-							head->basic.type = BasicType (int);
+							decl = get_decl (unit, head->decl.index);
+							if (decl->kind == DeclKind (accessor)) {
+								result = link_enum_expr (unit, scope_index, head->decl.index, expr->op.backward);
+								head->kind = TypeKind (basic);
+								head->basic.type = BasicType (int);
+							} else if (decl->kind == DeclKind (macro)) {
+								init_typestack (typestack);
+								result = link_macro_eval (unit, scope_index, head->decl.index, expr->op.backward, typestack);
+							} else {
+								Unreachable ();
+							}
 						} else {
 							struct type	*head;
 
@@ -482,7 +555,7 @@ int		link_expr (struct unit *unit, int scope_index, int expr_index, int is_selfr
 									result = 0;
 								}
 							} else {
-								Error ("operand of the _ () is not a pointer to function");
+								Code_Error (unit, "operand of the _ () is not a pointer to function");
 								result = 0;
 							}
 						}
@@ -501,7 +574,7 @@ int		link_expr (struct unit *unit, int scope_index, int expr_index, int is_selfr
 								pop_typestack (typestack);
 								result = 1;
 							} else {
-								Error ("one of the array subscript operands must be pointer");
+								Code_Error (unit, "one of the array subscript operands must be pointer");
 								result = 0;
 							}
 						} else if (get_typestack_head (&rightstack)->kind == TypeKind (mod) && (get_typestack_head (&rightstack)->mod.kind == TypeMod (pointer) || get_typestack_head (&rightstack)->mod.kind == TypeMod (array))) {
@@ -510,11 +583,11 @@ int		link_expr (struct unit *unit, int scope_index, int expr_index, int is_selfr
 								*typestack = rightstack;
 								result = 1;
 							} else {
-								Error ("one of the array subscript operands must be integral");
+								Code_Error (unit, "one of the array subscript operands must be integral");
 								result = 0;
 							}
 						} else {
-							Error ("one of the array subscript operands must be integral");
+							Code_Error (unit, "one of the array subscript operands must be integral");
 							result = 0;
 						}
 						/* check if rightstack is integral */
@@ -524,7 +597,12 @@ int		link_expr (struct unit *unit, int scope_index, int expr_index, int is_selfr
 				} break ;
 				case OpType (cast): {
 					if (link_expr (unit, scope_index, expr->op.forward, is_selfref_check, typestack)) {
-						result = link_type (unit, scope_index, expr->op.backward, 1);
+						if (link_type (unit, scope_index, expr->op.backward, 1)) {
+							init_typestack (typestack);
+							result = push_typestack_recursive (unit, typestack, expr->op.backward);
+						} else {
+							result = 0;
+						}
 					} else {
 						result = 0;
 					}
@@ -534,17 +612,19 @@ int		link_expr (struct unit *unit, int scope_index, int expr_index, int is_selfr
 					if (link_expr (unit, scope_index, expr->op.backward, is_selfref_check, typestack)) {
 						if (expr->op.type == OpType (indirect_access)) {
 							if (get_typestack_head (typestack)->kind == TypeKind (mod) && get_typestack_head (typestack)->mod.kind == TypeMod (pointer)) {
-								Debug ("pop pointer mod");
 								pop_typestack (typestack);
 								result = 1;
 							} else {
-								Error ("indirect access on non-pointer value");
+								Code_Error (unit, "indirect access on non-pointer value");
 								result = 0;
 							}
 						} else {
 							result = 1;
 						}
 						if (result) {
+							if (typestack->types_count == 0) {
+								print_path (unit, unit->paths, stderr);
+							}
 							if (get_typestack_head (typestack)->kind == TypeKind (tag) && get_typestack_head (typestack)->tag.type == TagType (struct)) {
 								struct typestack	ctypestack, *rightstack = &ctypestack;
 								struct type			*type;
@@ -555,7 +635,7 @@ int		link_expr (struct unit *unit, int scope_index, int expr_index, int is_selfr
 								result = link_member_access (unit, type->tag.decl, expr->op.forward, rightstack);
 								*typestack = *rightstack;
 							} else {
-								Error ("member access on non-struct value; %s %s", g_typekind[get_typestack_head (typestack)->kind], g_typemod[get_typestack_head (typestack)->mod.kind]);
+								Code_Error (unit, "member access on non-struct value; %s %s", g_typekind[get_typestack_head (typestack)->kind], g_typemod[get_typestack_head (typestack)->mod.kind]);
 								result = 0;
 							}
 						}
@@ -609,27 +689,6 @@ int		link_expr (struct unit *unit, int scope_index, int expr_index, int is_selfr
 				result = 0;
 			}
 		} break ;
-		case ExprType (decl): {
-			struct decl	*decl;
-
-			decl = get_decl (unit, expr->decl.index);
-			if (decl->type >= 0) {
-				result = push_typestack_recursive (unit, typestack, decl->type);
-				if (decl->kind == DeclKind (func)) {
-					struct type	ptr = {0};
-
-					ptr.kind = TypeKind (mod);
-					ptr.mod.kind = TypeMod (pointer);
-					push_typestack (typestack, &ptr);
-					typestack->is_lvalue = 0;
-				} else {
-					typestack->is_lvalue = 1;
-				}
-			} else {
-				Error ("untyped decl %s", decl->name);
-				result = 0;
-			}
-		} break ;
 		case ExprType (constant): {
 			struct type	type = {0};
 
@@ -641,15 +700,14 @@ int		link_expr (struct unit *unit, int scope_index, int expr_index, int is_selfr
 		case ExprType (identifier): {
 			int		decl_index;
 
-			decl_index = find_ordinary_decl (unit, scope_index, expr->identifier);
+			decl_index = find_ordinary_decl (unit, scope_index, expr->iden.name);
 			if (decl_index >= 0) {
 				if (is_selfref_check) {
 					struct decl	*decl;
 
 					decl = get_decl (unit, decl_index);
 					if (decl->is_in_process == 0) {
-						expr->type = ExprType (decl);
-						expr->decl.index = decl_index;
+						expr->iden.decl = decl_index;
 						if (decl->type >= 0) {
 							result = push_typestack_recursive (unit, typestack, decl->type);
 							if (decl->kind == DeclKind (func)) {
@@ -662,20 +720,25 @@ int		link_expr (struct unit *unit, int scope_index, int expr_index, int is_selfr
 							} else {
 								typestack->is_lvalue = 1;
 							}
+						} else if (is_declkind_meta (decl->kind)) {
+							struct type	type = {0};
+
+							type.kind = TypeKind (decl);
+							type.decl.index = decl_index;
+							result = push_typestack (typestack, &type);
 						} else {
-							Error ("untyped decl %s", decl->name);
+							Code_Error (unit, "untyped decl %s", decl->name);
 							result = 0;
 						}
 					} else {
-						Error ("self referencing declaration '%s'", decl->name);
+						Code_Error (unit, "self referencing declaration '%s'", decl->name);
 						result = 0;
 					}
 				} else {
 					struct decl	*decl;
 
 					decl = get_decl (unit, decl_index);
-					expr->type = ExprType (decl);
-					expr->decl.index = decl_index;
+					expr->iden.decl = decl_index;
 					if (decl->type >= 0) {
 						result = push_typestack_recursive (unit, typestack, decl->type);
 						if (decl->kind == DeclKind (func)) {
@@ -688,19 +751,69 @@ int		link_expr (struct unit *unit, int scope_index, int expr_index, int is_selfr
 						} else {
 							typestack->is_lvalue = 1;
 						}
+					} else if (is_declkind_meta (decl->kind)) {
+						struct type	type = {0};
+
+						type.kind = TypeKind (decl);
+						type.decl.index = decl_index;
+						result = push_typestack (typestack, &type);
 					} else {
-						Error ("untyped decl %s", decl->name);
+						Code_Error (unit, "untyped decl %s", decl->name);
 						result = 0;
 					}
 					result = 1;
 				}
 			} else {
-				Error ("undeclared identifier '%s'", expr->identifier);
+				Code_Error (unit, "undeclared identifier '%s'", expr->iden.name);
 				result = 0;
 			}
 		} break ;
 		case ExprType (typeinfo): {
-			result = link_type (unit, scope_index, expr->typeinfo.type, 1);
+			if (link_type (unit, scope_index, expr->typeinfo.type, 1)) {
+				int		typeinfo_index;
+
+				if (link_typeinfo (unit, expr->typeinfo.type, &typeinfo_index)) {
+					expr->typeinfo.decl = make_typeinfo_decl (unit, typeinfo_index);
+					if (expr->typeinfo.decl >= 0) {
+						struct type	type = {0};
+
+						type.kind = TypeKind (tag);
+						type.tag.type = TagType (struct);
+						type.tag.name = "typeinfo";
+						type.tag.decl = unit->typeinfo_struct_decl;
+						result = push_typestack (typestack, &type);
+					} else {
+						Code_Error (unit, "no decl for typeinfo");
+						result = 0;
+					}
+				} else {
+					result = 0;
+				}
+			} else {
+				result = 0;
+			}
+		} break ;
+		case ExprType (macroparam): {
+			struct decl	*decl;
+
+			Assert (expr->macroparam.decl >= 0);
+			decl = get_decl (unit, expr->macroparam.decl);
+			Assert (decl->kind == DeclKind (param));
+			Assert (decl->param.expr >= 0);
+			result = link_expr (unit, scope_index, decl->param.expr, is_selfref_check, typestack);
+		} break ;
+		case ExprType (string): {
+			struct type	type = {0};
+
+			type.kind = TypeKind (basic);
+			type.basic.type = BasicType (char);
+			type.basic.is_const = 1;
+			push_typestack (typestack, &type);
+			memset (&type, 0, sizeof type);
+			type.kind = TypeKind (mod);
+			type.mod.kind = TypeMod (pointer);
+			push_typestack (typestack, &type);
+			result = 1;
 		} break ;
 		default:
 		Unreachable ();
@@ -733,26 +846,40 @@ int		link_type (struct unit *unit, int scope_index, int type_index, int is_selfr
 
 			decl_index = find_decl_tag (unit, scope_index, type->tag.name, type->tag.type);
 			if (decl_index >= 0) {
-				Debug ("resolving %s tag '%s' with selfref check %d", g_tagname[type->tag.type], type->tag.name, is_selfref_check);
 				if (is_selfref_check) {
 					struct decl	*decl;
+					int			is_const;
+					int			is_volatile;
 
 					decl = get_decl (unit, decl_index);
 					if (decl->is_in_process == 0) {
+						is_const = type->tag.is_const;
+						is_volatile = type->tag.is_volatile;
+						memset (type, 0, sizeof *type);
 						type->kind = TypeKind (decl);
 						type->decl.index = decl_index;
+						type->decl.is_const = is_const;
+						type->decl.is_volatile = is_volatile;
 						result = 1;
 					} else {
-						Error ("self referencing declaration of %s tag '%s'", g_tagname[decl->tag.type], decl->name);
+						Code_Error (unit, "self referencing declaration of %s tag '%s'", g_tagname[decl->tag.type], decl->name);
 						result = 0;
 					}
 				} else {
+					int			is_const;
+					int			is_volatile;
+
+					is_const = type->tag.is_const;
+					is_volatile = type->tag.is_volatile;
+					memset (type, 0, sizeof *type);
 					type->kind = TypeKind (decl);
 					type->decl.index = decl_index;
+					type->decl.is_const = is_const;
+					type->decl.is_volatile = is_volatile;
 					result = 1;
 				}
 			} else {
-				Error ("undeclared %s tag '%s'", g_tagname[type->tag.type], type->tag.name);
+				Code_Error (unit, "undeclared %s tag '%s'", g_tagname[type->tag.type], type->tag.name);
 				result = 0;
 			}
 		} break ;
@@ -775,16 +902,20 @@ int		link_decl_var (struct unit *unit, int scope_index, int decl_index) {
 	int		result;
 	struct decl	*decl;
 
+	push_decl_path (unit, decl_index);
 	decl = get_decl (unit, decl_index);
 	Assert (decl->type >= 0);
 	if (decl->is_in_process == 0) {
+		push_type_path (unit, decl->type);
 		decl->is_in_process = 1;
 		result = link_type (unit, scope_index, decl->type, 1);
 		decl->is_in_process = 0;
+		pop_path (unit);
 	} else {
-		Error ("type loop referencing");
+		Code_Error (unit, "type loop referencing");
 		result = 0;
 	}
+	pop_path (unit);
 	return (result);
 }
 
@@ -792,13 +923,16 @@ int		link_decl_const (struct unit *unit, int scope_index, int decl_index) {
 	int		result;
 	struct decl	*decl;
 
+	push_decl_path (unit, decl_index);
 	decl = get_decl (unit, decl_index);
 	if (decl->is_in_process == 0) {
 		struct typestack	ctypestack, *typestack = &ctypestack;
 
 		decl->is_in_process = 1;
 		init_typestack (typestack);
+		push_expr_path (unit, decl->dconst.expr);
 		result = link_expr (unit, scope_index, decl->dconst.expr, 1, typestack);
+		pop_path (unit);
 		decl->is_in_process = 0;
 		if (result) {
 			Assert (decl->type < 0);
@@ -806,9 +940,10 @@ int		link_decl_const (struct unit *unit, int scope_index, int decl_index) {
 			result = insert_typestack_to_type (unit, decl->type, typestack);
 		}
 	} else {
-		Error ("type loop referencing");
+		Code_Error (unit, "type loop referencing");
 		result = 0;
 	}
+	pop_path (unit);
 	return (result);
 }
 
@@ -822,7 +957,11 @@ int		link_param_scope (struct unit *unit, int scope_index, int param_scope_index
 
 		decl = get_decl (unit, scope->decl_begin);
 		do {
+			push_decl_path (unit, get_decl_index (unit, decl));
+			push_type_path (unit, decl->type);
 			result = link_type (unit, scope_index, decl->type, 1);
+			pop_path (unit);
+			pop_path (unit);
 			decl = decl->next >= 0 ? get_decl (unit, decl->next) : 0;
 		} while (result && decl);
 	} else {
@@ -840,25 +979,33 @@ int		link_code_scope_flow (struct unit *unit, int scope_index, int flow_index, i
 	struct typestack typestack;
 
 	init_typestack (&typestack);
+	push_flow_path (unit, scope_index, flow_index);
 	flow = get_flow (unit, flow_index);
 	switch (flow->type) {
 		case FlowType (decl): {
-			g_link_decl_index = flow->decl.index;
+			unit->link_decl_index = flow->decl.index;
 			result = link_decl (unit, scope_index, flow->decl.index);
 		} break ;
 		case FlowType (expr): {
 			if (flow->expr.index >= 0) {
-				Debug ("linking: expr");
+				push_expr_path (unit, flow->expr.index);
 				result = link_expr (unit, scope_index, flow->expr.index, 1, &typestack);
-				Debug ("linking: expr end");
+				pop_path (unit);
 			}
 		} break ;
 		case FlowType (block): {
 			result = link_code_scope (unit, flow->block.scope);
 		} break ;
 		case FlowType (if): {
+			push_expr_path (unit, flow->fif.expr);
 			if (link_expr (unit, scope_index, flow->fif.expr, 1, &typestack)) {
 				/* check if type is ok for if statement */
+				result = 1;
+			} else {
+				result = 0;
+			}
+			pop_path (unit);
+			if (result) {
 				if (link_code_scope_flow (unit, scope_index, flow->fif.flow_body, 1)) {
 					if (flow->fif.else_body >= 0) {
 						result = link_code_scope_flow (unit, scope_index, flow->fif.else_body, 1);
@@ -868,21 +1015,26 @@ int		link_code_scope_flow (struct unit *unit, int scope_index, int flow_index, i
 				} else {
 					result = 0;
 				}
-			} else {
-				result = 0;
 			}
 		} break ;
 		case FlowType (while): {
+			push_expr_path (unit, flow->fwhile.expr);
 			if (link_expr (unit, scope_index, flow->fwhile.expr, 1, &typestack)) {
 				/* check if type is ok for while statement */
-				result = link_code_scope_flow (unit, scope_index, flow->fwhile.flow_body, 1);
+				result = 1;
 			} else {
 				result = 0;
+			}
+			pop_path (unit);
+			if (result) {
+				result = link_code_scope_flow (unit, scope_index, flow->fwhile.flow_body, 1);
 			}
 		} break ;
 		case FlowType (dowhile): {
 			if (link_code_scope_flow (unit, scope_index, flow->dowhile.flow_body, 1)) {
+				push_expr_path (unit, flow->dowhile.expr);
 				result = link_expr (unit, scope_index, flow->dowhile.expr, 1, &typestack);
+				pop_path (unit);
 				/* check if type is ok for dowhile statement */
 			} else {
 				result = 0;
@@ -890,7 +1042,7 @@ int		link_code_scope_flow (struct unit *unit, int scope_index, int flow_index, i
 		} break ;
 		default: Unreachable ();
 	}
-	if (flow->next < 0 && !is_flow_body && get_scope (unit, scope_index)->kind == ScopeKind (func)) {
+	if (result && flow->next < 0 && !is_flow_body && get_scope (unit, scope_index)->kind == ScopeKind (func)) {
 		struct scope	*scope;
 		struct type		*type;
 
@@ -900,28 +1052,31 @@ int		link_code_scope_flow (struct unit *unit, int scope_index, int flow_index, i
 		Assert (type->kind == TypeKind (mod));
 		Assert (type->mod.kind == TypeMod (function));
 		type = get_type (unit, type->mod.func.type);
+		push_type_path (unit, type->mod.func.type);
 		if (type->kind == TypeKind (basic) && type->basic.type == BasicType (void)) {
 			result = 1;
 		} else if (flow->type == FlowType (expr) && flow->expr.index >= 0) {
-			struct typestack	rightstack;
+			struct typestack	leftstack;
 
-			init_typestack (&rightstack);
-			if (push_typestack_recursive (unit, &rightstack, get_type_index (unit, type))) {
-				if (is_implicit_castable (&rightstack, &typestack)) {
+			init_typestack (&leftstack);
+			if (push_typestack_recursive (unit, &leftstack, get_type_index (unit, type))) {
+				if (is_implicit_castable (unit, &leftstack, &typestack, 0)) {
 					result = 1;
 				} else {
-					Error ("return type mismatch");
+					Code_Error (unit, "return type mismatch");
 					result = 0;
 				}
 			} else {
-				Error ("cannot push function's return type");
+				Code_Error (unit, "cannot push function's return type");
 				result = 0;
 			}
 		} else {
-			Error ("function must return value");
+			Code_Error (unit, "function must return value");
 			result = 0;
 		}
+		pop_path (unit);
 	}
+	pop_path (unit);
 	return (result);
 }
 
@@ -937,7 +1092,6 @@ int		link_code_scope (struct unit *unit, int scope_index) {
 
 			flow = get_flow (unit, scope->flow_begin);
 			do {
-				Debug ("linking: flow");
 				result = link_code_scope_flow (unit, scope_index, get_flow_index (unit, flow), 0);
 				flow = flow->next >= 0 ? get_flow (unit, flow->next) : 0;
 			} while (result && flow);
@@ -954,23 +1108,26 @@ int		link_decl_func (struct unit *unit, int scope_index, int decl_index) {
 	int		result;
 	struct decl	*decl;
 
+	push_function_path (unit, decl_index);
 	decl = get_decl (unit, decl_index);
 	if (decl->is_in_process == 0) {
 		decl->is_in_process = 1;
-		if (link_type (unit, scope_index, decl->type, 1)) {
+		push_type_path (unit, decl->type);
+		result = link_type (unit, scope_index, decl->type, 1);
+		pop_path (unit);
+		if (result) {
 			if (link_param_scope (unit, scope_index, decl->func.param_scope)) {
 				result = link_code_scope (unit, decl->func.scope);
 			} else {
 				result = 0;
 			}
-		} else {
-			result = 0;
 		}
 		decl->is_in_process = 0;
 	} else {
-		Error ("self referencing");
+		Code_Error (unit, "self referencing");
 		result = 0;
 	}
+	pop_path (unit);
 	return (result);
 }
 
@@ -978,12 +1135,13 @@ int		link_enum_scope_flow (struct unit *unit, int scope_index, int flow_index) {
 	int			result;
 	struct flow	*flow;
 
+	push_flow_path (unit, scope_index, flow_index);
 	flow = get_flow (unit, flow_index);
 	switch (flow->type) {
 		case FlowType (decl): {
 			struct decl	*decl;
 
-			g_link_decl_index = flow->decl.index;
+			unit->link_decl_index = flow->decl.index;
 			decl = get_decl (unit, flow->decl.index);
 			Assert (decl->kind == DeclKind (enum));
 			if (decl->enumt.expr >= 0) {
@@ -992,13 +1150,11 @@ int		link_enum_scope_flow (struct unit *unit, int scope_index, int flow_index) {
 
 					decl->is_in_process = 1;
 					init_typestack (&typestack);
-					Debug ("here");
 					result = link_expr (unit, scope_index, decl->enumt.expr, 1, &typestack);
-					Debug ("here end");
 					/* check if type is ok for enum */
 					decl->is_in_process = 0;
 				} else {
-					Error ("self referencing");
+					Code_Error (unit, "self referencing");
 					result = 0;
 				}
 			} else {
@@ -1007,6 +1163,7 @@ int		link_enum_scope_flow (struct unit *unit, int scope_index, int flow_index) {
 		} break ;
 		default: Unreachable ();
 	}
+	pop_path (unit);
 	return (result);
 }
 
@@ -1033,14 +1190,16 @@ int		link_struct_scope_flow (struct unit *unit, int scope_index, int flow_index)
 	int			result;
 	struct flow	*flow;
 
+	push_flow_path (unit, scope_index, flow_index);
 	flow = get_flow (unit, flow_index);
 	switch (flow->type) {
 		case FlowType (decl): {
-			g_link_decl_index = flow->decl.index;
+			unit->link_decl_index = flow->decl.index;
 			result = link_decl (unit, scope_index, flow->decl.index);
 		} break ;
 		default: Unreachable ();
 	}
+	pop_path (unit);
 	return (result);
 }
 
@@ -1067,26 +1226,28 @@ int		link_decl_tag (struct unit *unit, int scope_index, int decl_index) {
 	int		result;
 	struct decl	*decl;
 
+	push_tag_path (unit, decl_index);
 	decl = get_decl (unit, decl_index);
 	if (check_scope_declarations_for_name_uniqueness (unit, decl->tag.scope)) {
 		if (decl->is_in_process == 0) {
 			decl->is_in_process = 1;
-			if (decl->tag.type == TagType (struct) || decl->tag.type == TagType (union) || decl->tag.type == TagType (stroke)) {
+			if (decl->tag.type == TagType (struct) || decl->tag.type == TagType (union)) {
 				result = link_struct_scope (unit, decl->tag.scope);
-			} else if (decl->tag.type == TagType (enum) || decl->tag.type == TagType (bitfield)) {
+			} else if (decl->tag.type == TagType (enum)) {
 				result = link_enum_scope (unit, decl->tag.scope);
 			} else {
-				Error ("unknown tag type");
+				Code_Error (unit, "unknown tag type");
 				result = 0;
 			}
 			decl->is_in_process = 0;
 		} else {
-			Error ("self referencing declaration of %s tag '%s'", g_tagname[decl->tag.type], decl->name);
+			Code_Error (unit, "self referencing declaration of %s tag '%s'", g_tagname[decl->tag.type], decl->name);
 			result = 0;
 		}
 	} else {
 		result = 0;
 	}
+	pop_path (unit);
 	return (result);
 }
 
@@ -1094,8 +1255,10 @@ int		link_decl_block (struct unit *unit, int scope_index, int decl_index) {
 	int			result;
 	struct decl	*decl;
 
+	push_decl_path (unit, decl_index);
 	decl = get_decl (unit, decl_index);
 	result = link_struct_scope (unit, decl->block.scope);
+	pop_path (unit);
 	return (result);
 }
 
@@ -1104,24 +1267,27 @@ int		link_decl_accessor (struct unit *unit, int scope_index, int decl_index) {
 	struct decl	*decl;
 	int			tagdecl;
 
+	push_decl_path (unit, decl_index);
 	decl = get_decl (unit, decl_index);
 	tagdecl = find_decl_tag (unit, scope_index, decl->accessor.name, decl->accessor.tagtype);
 	if (tagdecl >= 0) {
 		decl->accessor.decl = tagdecl;
 		result = 1;
 	} else {
-		Error ("cannot link accessor");
+		Code_Error (unit, "cannot link accessor");
 		result = 0;
 	}
+	pop_path (unit);
 	return (result);
 }
+
+int		link_decl_macro (struct unit *unit, int scope_index, int decl_index);
 
 int		link_decl (struct unit *unit, int scope_index, int decl_index) {
 	int		result;
 	struct decl	*decl;
 
 	decl = get_decl (unit, decl_index);
-	Debug ("linking: decl %s", decl->name);
 	switch (decl->kind) {
 		case DeclKind (var): result = link_decl_var (unit, scope_index, decl_index); break ;
 		case DeclKind (const): result = link_decl_const (unit, scope_index, decl_index); break ;
@@ -1129,6 +1295,8 @@ int		link_decl (struct unit *unit, int scope_index, int decl_index) {
 		case DeclKind (tag): result = link_decl_tag (unit, scope_index, decl_index); break ;
 		case DeclKind (block): result = link_decl_block (unit, scope_index, decl_index); break ;
 		case DeclKind (accessor): result = link_decl_accessor (unit, scope_index, decl_index); break ;
+		case DeclKind (external):
+		case DeclKind (macro): result = 1; break ;
 		case DeclKind (enum):
 		default: Unreachable ();
 	}
@@ -1147,15 +1315,19 @@ int		link_unit_scope (struct unit *unit, int scope_index) {
 
 			flow = get_flow (unit, scope->flow_begin);
 			do {
+				push_flow_path (unit, scope_index, get_flow_index (unit, flow));
 				if (flow->type == FlowType (decl)) {
-					g_link_decl_index = flow->decl.index;
+					unit->link_decl_index = flow->decl.index;
 					result = link_decl (unit, scope_index, flow->decl.index);
 				} else {
-					Error ("unexpected flow type in unit scope");
+					Code_Error (unit, "unexpected flow type in unit scope");
 					result = 0;
 				}
+				pop_path (unit);
 				flow = flow->next >= 0 ? get_flow (unit, flow->next) : 0;
 			} while (result && flow);
+		} else {
+			result = 1;
 		}
 	} else {
 		result = 0;
@@ -1166,7 +1338,11 @@ int		link_unit_scope (struct unit *unit, int scope_index) {
 int		link_unit (struct unit *unit) {
 	int		result;
 
+	g_path = &unit->paths;
+	push_unit_path (unit, 0);
 	result = link_unit_scope (unit, unit->root_scope);
+	pop_path (unit);
+	g_path = 0;
 	return (result);
 }
 
