@@ -6,6 +6,8 @@
 
 #define println(...) do { printf (__VA_ARGS__); printf ("\n"); } while (0)
 
+#define __FILENAME__ (strrchr (__FILE__, '\\') ? strrchr (__FILE__, '\\') + 1 : __FILE__)
+
 #ifdef Release
 #	define No_Error_Messages
 #	define No_Debug_Messages
@@ -21,9 +23,17 @@ do {fprintf (stderr, "Error:%s:%d: ", __func__, __LINE__);\
 	fprintf (stderr, __VA_ARGS__);\
 	fprintf (stderr, "\n");\
 } while (0)
-#	define Code_Error(unit, ...) \
+#	define Link_Error(unit, ...) \
 do {Error (__VA_ARGS__);\
 	print_path (unit, (unit)->paths, stderr);\
+} while (0)
+#	define Parse_Error(tokens, pos, ...) \
+do {fprintf (stderr, "%s:%d:%d error: ", (pos).filename, (pos).line, (pos).column);\
+	fprintf (stderr, __VA_ARGS__);\
+	fprintf (stderr, " (%s:%d)\n", __FILENAME__, __LINE__);\
+	print_tokens_until (get_beginning_token (tokens), 1, (pos).line, 0, "", Token (newline), stderr);\
+	if (get_token_length (tokens) > 1) fprintf (stderr, "     %*.s%.*s\n\n", (pos).column - 1, "", get_token_original_length (tokens), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");\
+	else fprintf (stderr, "     %*.s^\n\n", (pos).column - 1, "");\
 } while (0)
 #endif
 

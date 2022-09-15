@@ -65,6 +65,11 @@ void	init_cbuffer (struct cbuffer *buffer) {
 	buffer->is_flow_stack = 0;
 }
 
+void	free_cbuffer (struct cbuffer *buffer) {
+	free_wrbuffer (buffer->wr);
+	memset (buffer, 0, sizeof *buffer);
+}
+
 int		write_c_new_line (struct cbuffer *buffer) {
 	return (write_format (buffer->wr, "\n%*.s", buffer->indent_level * buffer->tab_size, ""));
 }

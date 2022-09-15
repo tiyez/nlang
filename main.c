@@ -4,25 +4,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <string.h>
+
+#include <windows.h>
 
 #define Implementation_All
 #include "def.h"
 #include "memutil.h"
 #include "array.h"
 
-char	*own_stpcpy (char *restrict dest, const char *restrict source) {
-	while (*source) {
-		*dest++ = *source++;
-	}
-	*dest = 0;
-	return (dest);
-}
-
 #define Tokenizer__Is_Preprocessor 0
 #define Tokenizer__Is_Trigraph 0
 #define Tokenizer__skip_newline 1
 #define Tokenizer__no_line_directives 1
-#define Tokenizer__stpcpy own_stpcpy
+#define Tokenizer__Is_Global_Pos 0
 #include "tokenizer.c"
 
 #include "text_preprocessor.c"
@@ -69,129 +64,58 @@ char	*read_entire_file (const char *filename, usize *psize) {
 enum basictype {
 	BasicType (void),
 	BasicType (char),
+	BasicType (schar),
 	BasicType (uchar),
-	BasicType (wchar),
 	BasicType (byte),
-	BasicType (ubyte),
 	BasicType (short),
 	BasicType (ushort),
+	BasicType (wchar),
 	BasicType (int),
 	BasicType (uint),
+	BasicType (long),
+	BasicType (ulong),
+	BasicType (longlong),
+	BasicType (ulonglong),
 	BasicType (size),
 	BasicType (usize),
+	BasicType (int8),
+	BasicType (uint8),
+	BasicType (int16),
+	BasicType (uint16),
+	BasicType (int32),
+	BasicType (uint32),
+	BasicType (int64),
+	BasicType (uint64),
 	BasicType (float),
 	BasicType (double),
+	BasicType (longdouble),
 };
 
-const char	*g_basictype_name[] = {
-	"void", "char", "uchar", "wchar", "byte", "ubyte", "short",
-	"ushort", "int", "uint", "size", "usize", "float", "double",
+const char	*g_basictype[] = {
+	"void", "char", "schar", "uchar", "byte", "short", "ushort", "wchar", "int", "uint", "long", "ulong",
+	"longlong", "ulonglong", "size", "usize", "int8", "uint8", "int16", "uint16", "int32", "uint32",
+	"int64", "uint64", "float", "double", "longdouble"
 };
 
-int		is_basictype (const char *string, enum basictype *type) {
-	int		index;
-
-	index = 0;
-	while (index < Array_Count (g_basictype_name) && 0 != strcmp (string, g_basictype_name[index])) {
-		index += 1;
-	}
-	*type = index;
-	return (index < Array_Count (g_basictype_name));
-}
-
-const char	*get_basictype_name (enum basictype type) {
-	return (g_basictype_name[type]);
-}
-
-int		is_basictype_integral (enum basictype type) {
-	return (type >= BasicType (char) && type <= BasicType (usize));
-}
-
-int		is_basictype_signed (enum basictype type) {
-	int		result;
-
-	switch (type) {
-		BasicType (char):
-		BasicType (wchar):
-		BasicType (byte):
-		BasicType (short):
-		BasicType (int):
-		BasicType (size): {
-			result = 1;
-		} break ;
-		default: {
-			result = 0;
-		} break ;
-	}
-	return (result);
-}
-
-int		is_basictype_unsigned (enum basictype type) {
-	int		result;
-
-	switch (type) {
-		case BasicType (uchar):
-		case BasicType (ubyte):
-		case BasicType (ushort):
-		case BasicType (uint):
-		case BasicType (usize): {
-			result = 1;
-		} break ;
-		default: {
-			result = 0;
-		} break ;
-	}
-	return (result);
-}
-
-int		is_basictype_float (enum basictype type) {
-	return (type == BasicType (float) || type == BasicType (double));
-}
-
-int		get_basictype_size (enum basictype type) {
-	int		result;
-
-	switch (type) {
-		case BasicType (void): {
-			result = 0;
-		} break ;
-		case BasicType (char):
-		case BasicType (uchar):
-		case BasicType (wchar):
-		case BasicType (byte):
-		case BasicType (ubyte): {
-			result = 1;
-		} break ;
-		case BasicType (short):
-		case BasicType (ushort): {
-			result = 2;
-		} break ;
-		case BasicType (float):
-		case BasicType (int):
-		case BasicType (uint): {
-			result = 4;
-		} break ;
-		case BasicType (double):
-		case BasicType (size):
-		case BasicType (usize): {
-			result = 8;
-		} break ;
-	}
-	return (result);
-}
+const char	*g_basictype_c_name[] = {
+	"void", "char", "signed char", "unsigned char", "unsigned char", "short", "unsigned short", "int",
+	"int", "unsigned int", "long int", "unsinged long int", "long long int", "unsinged long long int",
+	"ptrdiff_t", "size_t", "int8_t", "uint8_t", "int16_t", "uint16_t", "int32_t", "uint32_t", "int64_t", "uint64_t",
+	"float", "double", "long double",
+};
 
 #define TypeKind(name) TypeKind_##name
 enum typekind {
 	TypeKind (basic),
 	TypeKind (tag),
 	TypeKind (mod),
-	TypeKind (group),
 	TypeKind (typeof),
-	TypeKind (decl),
+	TypeKind (deftype),
+	TypeKind (internal),
 };
 
 const char	*g_typekind[] = {
-	"basic", "tag", "mod", "group", "typeof", "decl", "external",
+	"basic", "tag", "mod", "typeof", "deftype", "internal",
 };
 
 #define TypeMod(name) TypeMod_##name
@@ -224,79 +148,60 @@ int		is_tagtype (const char *string, enum tagtype *out) {
 	while (index < Array_Count (g_tagname) && 0 != strcmp (string, g_tagname[index])) {
 		index += 1;
 	}
-	*out = index;
+	if (out) {
+		*out = index;
+	}
 	return (index < Array_Count (g_tagname));
 }
 
 struct type_basic {
 	enum basictype	type;
-	uint			is_const : 1;
-	uint			is_volatile : 1;
-};
-
-struct type_group {
-	int			type;
 };
 
 struct type_tag {
 	enum tagtype	type;
 	const char		*name;
-	int				decl;
-	uint			is_const : 1;
-	uint			is_volatile : 1;
+	uint64			decl;
 };
 
 struct type_typeof {
-	int		expr;
-	uint	is_const : 1;
-	uint	is_volatile : 1;
+	uint	expr;
 };
 
-struct type_decl {
-	int		index;
-	uint	is_const : 1;
-	uint	is_volatile : 1;
+struct type_deftype {
+	const char	*name;
 };
 
-struct typemod_ptr {
-	uint	is_const : 1;
-	uint	is_volatile : 1;
-	uint	is_restrict : 1;
-	int		type;
-};
-
-struct typemod_array {
-	uint	is_const : 1;
-	uint	is_volatile : 1;
-	uint	is_restrict : 1;
-	uint	is_static : 1;
-	int		expr;
-	int		type;
-};
-
-struct typemod_func {
-	int		param_scope;
-	int		type;
+struct type_internal {
+	uint64	decl;
 };
 
 struct type_mod {
+	uint			forward;
 	enum typemod	kind;
 	union {
-		struct typemod_ptr		ptr;
-		struct typemod_array	array;
-		struct typemod_func		func;
+		uint64	expr;
+		uint64	param_scope;
 	};
 };
 
+struct type_flags {
+	uint	is_group : 1;
+	uint	is_const : 1;
+	uint	is_volatile : 1;
+	uint	is_restrict : 1;
+};
+
 struct type {
-	enum typekind	kind;
+	struct type_flags	flags;
+	enum typekind		kind;
 	union {
-		struct type_basic	basic;
-		struct type_group	group;
-		struct type_tag		tag;
-		struct type_mod		mod;
-		struct type_typeof	typeof;
-		struct type_decl	decl;
+		struct type_basic		basic;
+		struct type_tag			tag;
+		struct type_mod			mod;
+		struct type_typeof		typeof;
+		struct type_deftype		deftype;
+		struct type_internal	internal;
 	};
 };
 
@@ -304,78 +209,155 @@ struct type {
 enum declkind {
 	DeclKind (var),
 	DeclKind (const),
+	DeclKind (alias),
 	DeclKind (tag),
 	DeclKind (func),
-	DeclKind (macro),
 	DeclKind (param),
 	DeclKind (block),
 	DeclKind (enum),
-	DeclKind (accessor),
-	DeclKind (typeinfo),
-	DeclKind (external),
+	DeclKind (define),
 };
 
 const char	*g_declkind[] = {
-	"var", "const", "tag", "func", "macro", "param", "block", "enum", "accessor", "typeinfo", "external",
+	"var", "const", "alias", "tag", "func", "param", "block", "enum", "define",
 };
 
-int		is_declkind_meta (enum declkind declkind) {
-	return (declkind == DeclKind (accessor) || declkind == DeclKind (macro));
-}
+#define DefineKind(name) DefineKind_##name
+enum definekind {
+	DefineKind (macro),
+	DefineKind (accessor),
+	DefineKind (external),
+	DefineKind (type),
+	DefineKind (visability),
+	DefineKind (funcprefix),
+	DefineKind (builtin),
+};
+static const int g_definekind_ordinal[] = {
+	1, 1, 1, 0, 0, 0, 1,
+};
+const char *g_definekind[] = {
+	"macro", "accessor", "external", "type", "visability", "funcprefix", "builtin",
+};
+
+#define Visability(name) Visability_##name
+enum visability {
+	Visability (private),
+	Visability (public),
+};
+static const char	*const g_visability[] = {
+	"private", "public",
+};
+
+#define Builtin(name) Builtin_##name
+enum builtin {
+	Builtin (flag),
+	Builtin (platform),
+	Builtin (option),
+};
+static const char	*const g_builtin[] = {
+	"__Flag", "__Platform", "__Option",
+};
 
 struct decl_const {
-	int		expr;
+	uint	expr;
+};
+
+struct decl_var {
+	enum visability	visability;
+	uint			init_scope;
 };
 
 struct decl_func {
-	int		param_scope;
-	int		scope;
-};
-
-struct decl_macro {
-	int		param_scope;
-	int		scope;
+	enum visability	visability;
+	const char		*prefix;
+	uint			param_scope;
+	uint			scope;
 };
 
 struct decl_tag {
 	enum tagtype	type;
-	int				scope;
-	int				member_table;
+	int				is_external;
+	uint			scope;
+	uint			param_scope;
+	uint			member_table;
 };
 
 struct decl_block {
-	int		scope;
+	uint	scope;
 };
 
 struct decl_enum {
-	int		expr;
-};
-
-struct decl_accessor {
-	enum tagtype	tagtype;
-	const char		*name;
-	int				decl;
+	uint	expr;
+	uint	params;
 };
 
 struct decl_param {
-	int		expr;
+	uint	expr;
+};
+
+struct decl_alias {
+	uint	expr;
+};
+
+struct decl_define_macro {
+	uint	param_scope;
+	uint	scope;
+};
+
+struct decl_define_accessor {
+	enum tagtype	tagtype;
+	const char		*name;
+	uint64			decl;
+};
+
+struct decl_define_visability {
+	enum visability	type;
+	const char		*target;
+};
+
+struct decl_define_funcprefix {
+	const char	*prefix;
+	const char	*target;
+};
+
+struct decl_define_builtin {
+	enum builtin	type;
+};
+
+struct decl_define {
+	enum definekind	kind;
+	union {
+		struct decl_define_macro		macro;
+		struct decl_define_accessor		accessor;
+		struct decl_define_visability	visability;
+		struct decl_define_funcprefix	funcprefix;
+		struct decl_define_builtin		builtin;
+	};
 };
 
 struct decl {
-	int				next;
+	uint			next;
 	const char		*name;
-	int				type;
+	const char		*filename;
+	int				line;
+	uint			type;
 	uint			is_in_process : 1;
+	uint			is_linked : 1;
+	uint			is_sized : 1;
+	uint			is_global : 1;
+	unsigned		size;
+	unsigned		offset;
 	enum declkind	kind;
 	union {
+		struct decl_var		var;
 		struct decl_const	dconst;
 		struct decl_tag		tag;
 		struct decl_func	func;
-		struct decl_macro	macro;
 		struct decl_param	param;
 		struct decl_block	block;
 		struct decl_enum	enumt;
-		struct decl_accessor	accessor;
+		struct decl_alias	alias;
+		struct decl_define	define;
 	};
 };
 
@@ -385,48 +367,72 @@ enum flowtype {
 	FlowType (expr),
 	FlowType (block),
 	FlowType (if),
+	FlowType (constif),
 	FlowType (while),
 	FlowType (dowhile),
+	FlowType (init),
+};
+
+#define InitType(name) InitType_##name
+enum inittype {
+	InitType (expr),
+	InitType (list),
+	InitType (array),
+	InitType (struct),
 };
 
 struct flow_decl {
-	int		index;
+	uint	index;
 };
 
 struct flow_expr {
-	int		index;
+	uint	index;
 };
 
 struct flow_block {
-	int		scope;
+	uint	scope;
 };
 
 struct flow_if {
-	int		expr;
-	int		flow_body;
-	int		else_body;
+	uint	expr;
+	uint	flow_body;
+	uint	else_body;
+};
+
+struct flow_constif {
+	uint	expr;
+	uint	flow_body;
+	uint	else_body;
 };
 
 struct flow_while {
-	int		expr;
-	int		flow_body;
+	uint	expr;
+	uint	flow_body;
 };
 
 struct flow_dowhile {
-	int		expr;
-	int		flow_body;
+	uint	expr;
+	uint	flow_body;
+};
+
+struct flow_init {
+	enum inittype	type;
+	uint			body;
 };
 
 struct flow {
-	int				next;
+	uint			next;
 	enum flowtype	type;
+	int				line;
 	union {
 		struct flow_decl		decl;
 		struct flow_expr		expr;
 		struct flow_block		block;
 		struct flow_if			fif;
+		struct flow_constif		constif;
 		struct flow_while		fwhile;
 		struct flow_dowhile		dowhile;
+		struct flow_init		init;
 	};
 };
 
@@ -438,18 +444,22 @@ enum scopekind {
 	ScopeKind (tag),
 	ScopeKind (param),
 	ScopeKind (macro),
+	ScopeKind (init),
+};
+const char	*g_scopekind[] = {
+	"unit", "func", "code", "tag", "param", "macro", "init_array", "init_struct",
 };
 
 struct scope {
 	enum scopekind	kind;
 	enum tagtype	tagtype;
-	int				parent_scope;
-	int				param_scope;
-	int				type_index;
-	int				decl_begin;
-	int				decl_last;
-	int				flow_begin;
-	int				flow_last;
+	uint			parent_scope;
+	uint			param_scope;
+	uint			type_index;
+	uint			decl_begin;
+	uint			decl_last;
+	uint			flow_begin;
+	uint			flow_last;
 };
 
 #define ExprType(name) ExprType_##name
@@ -459,27 +469,23 @@ enum exprtype {
 	ExprType (constant),
 	ExprType (string),
 	ExprType (identifier),
+	ExprType (enum),
+	ExprType (table),
 	ExprType (funcparam),
+	ExprType (macrocall),
 	ExprType (macroparam),
 	ExprType (typeinfo),
 };
 
 const char	*g_exprtype[] = {
-	"invalid", "op", "constant", "identifier", "decl", "compound", "funcparam", "typeinfo",
-};
-
-struct expr_constant {
-	enum basictype	type;
-	union {
-		isize	value;
-		usize	uvalue;
-		double	fvalue;
-	};
+	"invalid", "op", "constant", "string", "identifier", "enum", "table", "funcparam", "macrocall", "macroparam", "typeinfo",
 };
 
 #define OpType(name) OpType_##name
 enum optype {
 	OpType (group),
+	OpType (typesizeof),
+	OpType (typealignof),
 
 	OpType (function_call),
 	OpType (array_subscript),
@@ -493,8 +499,8 @@ enum optype {
 	OpType (indirect),
 	OpType (cast),
 	OpType (address_of),
-	/* sizeof */
-	/* _Alignof */
+	OpType (sizeof),
+	OpType (alignof),
 
 	OpType (multiply),
 	OpType (divide),
@@ -541,33 +547,91 @@ enum optype {
 	/* comma */
 };
 
+const char	*g_opname[] = {
+	"group", "typesizeof", "typealignof", "function_call", "array_subscript", "member_access", "indirect_access",
+	"unary_plus", "unary_minus", "logical_not", "bitwise_not", "indirect", "cast", "address_of", "sizeof", "alignof",
+	"multiply", "divide", "modulo", "add", "subtract", "left_shift", "right_shift", "less", "greater", "less_equal",
+	"greater_equal", "equal", "not_equal", "bitwise_and", "bitwise_xor", "bitwise_or", "logical_and", "logical_or",
+	"assign", "add_assign", "subtract_assign", "multiply_assign", "divide_assign", "modulo_assign", "left_shift_assign",
+	"right_shift_assign", "bitwise_and_assign", "bitwise_xor_assign", "bitwise_or_assign",
+};
+
+int		is_arithmetic_optype (enum optype optype) {
+	return ((optype >= OpType (multiply) && optype <= OpType (subtract)) || (optype >= OpType (less) && optype <= OpType (not_equal)) || (optype >= OpType (bitwise_and) && optype <= OpType (bitwise_or)));
+}
+
+int		is_arithmethic_assignment_optype (enum optype optype) {
+	return ((optype >= OpType (add_assign) && optype <= OpType (modulo_assign)) || (optype >= OpType (bitwise_and_assign) && optype <= OpType (bitwise_or_assign)));
+}
+
+int		is_bitwise_optype (enum optype optype) {
+	return ((optype >= OpType (bitwise_and) && optype <= OpType (bitwise_or)) || optype == OpType (bitwise_not));
+}
+
+int		is_bitwise_assignment_optype (enum optype optype) {
+	return (optype >= OpType (bitwise_and_assign) && optype <= OpType (bitwise_or_assign));
+}
+
+int		is_assignment_optype (enum optype optype) {
+	return (optype >= OpType (assign) && optype <= OpType (bitwise_or_assign));
+}
+
+int		is_comparison_optype (enum optype optype) {
+	return (optype >= OpType (less) && optype <= OpType (not_equal));
+}
+
+struct exprvalue {
+	enum basictype	type;
+	union {
+		isize		value;
+		usize		uvalue;
+		long double	fvalue;
+	};
+};
+
 struct exprop {
-	enum optype		type;
-	int				forward, backward;
+	enum optype	type;
+	uint		forward;
+	uint		backward;
 };
 
 struct expriden {
 	const char	*name;
-	int			decl;
+	uint64		decl;
+};
+
+struct exprenum {
+	uint	lib_index;
+	uint	decl;
+	uint	enum_decl;
+};
+
+struct exprtable {
+	uint	lib_index;
+	uint	decl;
+	uint	tag_decl;
 };
 
 struct exprfuncparam {
-	int		expr;
-	int		next;
+	uint	expr;
+	uint	next;
+};
+
+struct exprmacrocall {
+	uint64	decl;
+	uint	instance;
 };
 
 struct exprmacroparam {
 	const char	*name;
-	int			decl;
+	uint		decl;
+	uint		expr;
 };
 
 struct exprtypeinfo {
-	int		type;
-	int		decl;
-};
-
-struct exprdecl {
-	int		index;
+	uint	lib_index;
+	uint	type;
+	uint	index;
 };
 
 struct exprstr {
@@ -578,10 +642,13 @@ struct expr {
 	enum exprtype	type;
 	union {
 		struct exprop			op;
-		struct expr_constant	constant;
+		struct exprvalue		constant;
 		struct expriden			iden;
 		struct exprstr			string;
+		struct exprenum			enumt;
+		struct exprtable		table;
 		struct exprfuncparam	funcparam;
+		struct exprmacrocall	macrocall;
 		struct exprmacroparam	macroparam;
 		struct exprtypeinfo		typeinfo;
 	};
@@ -600,36 +667,36 @@ enum path_kind {
 };
 
 struct path_unit {
-	int		index;
+	uint64	index;
 };
 
 struct path_function {
-	int		decl;
+	uint	decl;
 };
 
 struct path_macro {
-	int		decl;
+	uint	decl;
 };
 
 struct path_tag {
-	int		decl;
+	uint	decl;
 };
 
 struct path_decl {
-	int		index;
+	uint64	index;
 };
 
 struct path_flow {
-	int		scope;
-	int		index;
+	uint	scope;
+	uint	index;
 };
 
 struct path_type {
-	int		head;
+	uint	head;
 };
 
 struct path_expr {
-	int		head;
+	uint	head;
 };
 
 struct path {
@@ -648,10 +715,10 @@ struct path {
 
 struct typemember {
 	const char	*name;
-	int		typeinfo;
+	uint	typeinfo;
 	int		offset;
 	int		value;
-	int		decl_index;
+	uint	decl_index;
 };
 
 #define TypeInfo_Kind(name) TypeInfo_Kind_##name
@@ -665,169 +732,316 @@ enum typeinfo_kind {
 	TypeInfo_Kind (function),
 };
 
+#define TypeQualifier(name) TypeQualifier_##name
+enum typequalifier {
+	TypeQualifier (const) = 0x1,
+	TypeQualifier (volatile) = 0x2,
+	TypeQualifier (restrict) = 0x4,
+};
+
 struct typeinfo {
 	usize	size;
 	int		count;
+	enum typequalifier	qualifiers;
 	enum typeinfo_kind	kind;
 	enum basictype		basic;
 	const char	*tagname;
-	int		typeinfo;
-	int		members;
-	int		type_decl_index;
+	uint	typeinfo;
+	uint	members;
+	uint	type_decl_index;
+};
+
+#define Flag(name) Flag_##name
+enum flag {
+	Flag (build32),
+	Flag (test),
+	Flag (lib),
+	Flag (source),
+	Flag (entry),
+	Flag (unit_index),
+	Flag (_count),
+};
+static const char	*const g_flag[Flag (_count)] = {
+	"build32", "test", "lib", "source", "entry", "unit_index"
+};
+
+struct declref {
+	uint64		index;
+	char		key[32];
+};
+
+struct manifest {
+	const char			*libs;
+	const char			*sources;
+	const char			*options;
+	const char			*expose;
+	int					is_expose_all;
+	const char			*cc_include_paths;
+	const char			*cc_includes;
+	const char			*cc_libpaths;
+	const char			*cc_libs;
+	const char			*cc_flags;
+	const char			*cc_linker_flags;
 };
 
 struct unit {
-	int				root_scope;
-	int				typeinfo_struct_decl;
-	int				link_decl_index;
-	struct path		*paths;
-	struct decl		*decls;
-	struct type		*types;
-	struct expr		*exprs;
-	struct flow		*flows;
-	struct scope	*scopes;
-	struct typeinfo		*typeinfos;
-	struct typemember	*typemembers;
+	uint				scope;
+	uint				link_decl_index;
+	const char			*filename;
+	const char			*function_name;
+	char				*filepath;
+	int					flags[Flag (_count)];
+	struct position		pos;
+	struct manifest		manifest;
+	struct path			*paths;
+	struct unit			**libptrs;
+	struct decl			**decls;
+	struct type			**types;
+	struct expr			**exprs;
+	struct flow			**flows;
+	struct scope		**scopes;
+	struct typeinfo		**typeinfos;
+	struct typemember	**typemembers;
+	struct declref		*ordinaries;
+	struct declref		*tags;
 };
 
+#define Platform(name) Platform_##name
+enum platform {
+	Platform (windows),
+	Platform (linux),
+	Platform (macos),
+};
+
+struct tokenizer	g_tokenizer;
 struct path		**g_path = 0;
+struct unit		**g_libs = 0;
+struct unit		*g_unit = 0;
+uint64			g_typeinfo_struct_decl = 0;
+int				g_is_build32 = 0;
+enum platform	g_platform = Platform (windows);
+
+#define ValueCategory(name) ValueCategory_##name
+enum valuecategory {
+	ValueCategory (lvalue),
+	ValueCategory (rvalue),
+};
 
 struct typestack {
-	struct type	types[Max_Type_Depth];
-	int			types_count;
-	int			head;
-	int			is_lvalue;
+	struct type			types[Max_Type_Depth];
+	int					types_count;
+	int					head;
+	enum valuecategory	value;
+	int					is_sizeof_context;
 };
 
-int		make_scope (struct unit *unit, enum scopekind kind, int parent);
-struct scope	*get_scope (struct unit *unit, int scope_index);
-struct decl	*get_decl (struct unit *unit, int index);
-struct flow	*get_flow (struct unit *unit, int index);
-int		get_flow_index (struct unit *unit, struct flow *flow);
-void	print_expr (struct unit *unit, int head_index, FILE *file);
-void	print_type (struct unit *unit, int head, FILE *file);
+#define EvalType(name) EvalType_##name
+enum evaltype {
+	EvalType (basic),
+	EvalType (string),
+	EvalType (typeinfo),
+	EvalType (typeinfo_pointer),
+	EvalType (typemember),
+	EvalType (typemember_pointer),
+};
 
+int		is_evaltype_pointer (enum evaltype type) {
+	return (type == EvalType (string) || type == EvalType (typeinfo_pointer) || type == EvalType (typemember_pointer));
+}
+
+struct evalvalue {
+	enum evaltype	type;
+	enum basictype	basic;
+	union {
+		usize	uvalue;
+		isize	value;
+		double	fvalue;
+		const char	*string;
+		int		typeinfo_index;
+		int		typemember_index;
+	};
+};
+
+struct sizevalue {
+	unsigned	size;
+	unsigned	alignment;
+};
+
+uint		make_scope (struct unit *unit, enum scopekind kind, uint parent);
+struct scope	*get_scope (struct unit *unit, uint scope_index);
+struct decl	*get_decl (struct unit *unit, uint index);
+struct flow	*get_flow (struct unit *unit, uint index);
+uint	make_param_decl (struct unit *unit, uint scope_index, const char *name, uint type_index);
+uint	get_flow_index (struct unit *unit, struct flow *flow);
+void	print_expr (struct unit *unit, uint head_index, FILE *file);
+void	print_type (struct unit *unit, uint head, FILE *file);
+uint	make_type_copy (struct unit *unit, struct unit *decl_unit, uint type_index);
+uint	make_expr_copy (struct unit *unit, struct unit *decl_unit, uint expr_index);
+uint	make_scope_copy (struct unit *unit, struct unit *decl_unit, uint scope_index, uint parent_scope, uint param_scope);
+uint64	find_decl_in_table (struct unit *unit, const char *name, enum tagtype tagtype, int is_typedef);
+void	push_const_char_pointer_to_typestack (struct typestack *typestack);
+
+int		is_lib_index (uint64 index) {
+	return ((index >> 32) != 0);
+}
+
+uint	get_lib_index (uint64 index) {
+	return (index >> 32);
+}
+
+uint	unlib_index (uint64 index) {
+	return (index & 0xFFFFFFFFu);
+}
+
+uint64	make_lib_index (uint lib_index, uint bucket_index) {
+	return (((uint64) lib_index << 32) + bucket_index);
+}
+
+struct unit	*get_lib (uint lib_index) {
+	return (Get_Bucket_Element (g_libs, lib_index));
+}
+
+int		make_path_from_relative (char *path, const char *relto, const char *rel) {
+	int			result;
+	const char	*ptr;
+
+	// Debug ("trying from [%s] [%s]", relto, rel);
+	Assert (relto[strlen (relto) - 1] == '\\');
+	ptr = strrchr (relto, '\\');
+	while (ptr && 0 == strncmp (rel, "..\\", 3)) {
+		rel += 3;
+		ptr = strrchr (ptr - 1, '\\');
+	}
+	if (ptr) {
+		strncpy (path, relto, ptr - relto + 1);
+		path[ptr - relto + 1] = 0;
+		strcat (path, rel);
+		// Debug ("path: %s", path);
+		result = 1;
+	} else {
+		result = 0;
+	}
+	return (result);
+}
+
+#include "basictype.c"
 #include "path.c"
 #include "expr.c"
 #include "type.c"
 #include "typestack.c"
 #include "scope.c"
+#include "copy.c"
 #include "link.c"
 #include "macro.c"
 #include "typeinfo.c"
-#include "unit.c"
+#include "eval.c"
+#include "size.c"
 #include "writer.c"
+#include "unit.c"
 #include "cbackend.c"
 
-void	init_unit (struct unit *unit) {
-	unit->root_scope = make_scope (unit, ScopeKind (unit), -1);
-}
+int		main (int argc, char *argv[]) {
+	char	*input_file = 0;
+	int		flags[Flag (_count)];
+	char	include_path[256];
+	char	working_path[256];
 
-int		main () {
-	printf ("Hello World!\n");
+	if (GetModuleFileNameA (0, include_path, sizeof include_path)) {
+		char	*ptr, *ptr2;
 
-	char	*text;
-	usize	size;
-	text = read_entire_file ("test.n", &size);
-	printf ("test.n:\n%s\n", text);
-	char	*tokens;
-	int		*nl_array;
-
-	size = preprocess_text (text, text + size, &nl_array);
-
-	tokens = tokenize (text, nl_array, 1, "test.n");
-	print_tokens (tokens, 1, "", stdout);
-
-	if (tokens[-1] == Token (newline)) {
-		tokens = next_token (tokens, 0);
-	}
-
-	struct unit	cunit = {0}, *unit = &cunit;
-	struct type	*type = 0;
-
-	init_unit (unit);
-
-
-	// int		head = -1;
-	// if (parse_expr (unit, &tokens, &head)) {
-	// 	if (head >= 0) {
-	// 		print_expr (unit, head, stdout);
-	// 		fprintf (stdout, "\n\n");
-	// 		print_expr_table (unit, head, stdout);
-	// 	} else {
-	// 		Debug ("empty expr");
-	// 	}
-	// } else {
-	// 	Error ("cannot parse expr");
-	// }
-
-
-	// int		head = -1;
-	// if (parse_scope (unit, unit->root_scope, &tokens)) {
-	// 	print_scope (unit, unit->root_scope, 0, stdout);
-	// 	if (link_unit (unit)) {
-	// 		Debug ("-------------------");
-	// 		print_scope (unit, unit->root_scope, 0, stdout);
-	// 	} else {
-	// 		Error ("cannot link unit");
-	// 	}
-	// } else {
-	// 	Error ("cannot parse code scope");
-	// }
-
-
-	// int		head = -1;
-	// if (parse_type (unit, &tokens, &head)) {
-	// 	if (head >= 0) {
-	// 		struct cbuffer	cbuffer;
-
-	// 		printf ("\ntype: ");
-	// 		print_type (unit, head, stdout);
-	// 		printf ("\ntree: ");
-	// 		print_type_tree (unit, head, stdout);
-	// 		printf ("\nc: ");
-	// 		init_cbuffer (&cbuffer);
-	// 		c_backend_translate_type (unit, head, "a", &cbuffer);
-	// 		printf ("%s", cbuffer.wr->buffer);
-	// 		printf ("\n");
-	// 	} else {
-	// 		Debug ("empty type");
-	// 	}
-	// } else {
-	// 	Error ("cannot parse type");
-	// }
-
-
-	int		head = -1;
-	if (parse_unit (unit, &tokens)) {
-		print_scope (unit, unit->root_scope, 0, stdout);
-		if (link_unit (unit)) {
-			struct cbuffer	cbuffer;
-
-			Debug ("-------------------");
-			print_scope (unit, unit->root_scope, 0, stdout);
-			Debug ("===================");
-			init_cbuffer (&cbuffer);
-			c_backend_translate_unit (unit, &cbuffer);
-			printf ("%s", cbuffer.wr->buffer);
-			printf ("\n");
-			FILE *file = fopen ("ctest.c", "w");
-			fprintf (file, "%s", cbuffer.wr->buffer);
-			fclose (file);
+		ptr = strrchr (include_path, '\\');
+		if (ptr) {
+			*(ptr + 1) = 0;
+			ptr += 1;
 		} else {
-			Error ("cannot link");
+			include_path[0] = 0;
+			ptr = include_path;
 		}
+		ptr2 = strrchr (argv[0], '\\');
+		if (ptr2) {
+			ptr2 += 1;
+		} else {
+			ptr2 = argv[0];
+		}
+		if (0 == strcmp (ptr2, "main") || 0 == strcmp (ptr2, "main.exe")) {
+			strcpy (ptr, "release\\includes\\");
+		} else {
+			strcpy (ptr, "includes\\");
+		}
+		// Debug ("include_path: %s", include_path);
 	} else {
-		Error ("cannot parse");
+		Error ("cannot get executable path");
+		exit (1);
+	}
+	if (GetCurrentDirectory (sizeof working_path, working_path)) {
+		if (working_path[strlen (working_path) - 1] != '\\') {
+			strcat (working_path, "\\");
+		}
+		// Debug ("working_path: %s", working_path);
+	} else {
+		Error ("cannot get working path");
+		exit (1);
+	}
+	argv += 1;
+	while (*argv) {
+		if (**argv == '-') {
+			if (0 == strcmp (*argv + 1, "build32")) {
+				flags[Flag (build32)] = 1;
+			} else if (0 == strcmp (*argv + 1, "test")) {
+				flags[Flag (test)] = 1;
+			} else {
+				fprintf (stderr, "error: unknown flag '%s'\n", *argv);
+				exit (1);
+			}
+		} else if (0 == input_file) {
+			input_file = *argv;
+		} else {
+			fprintf (stderr, "error: only one input file is allowed\n");
+			exit (1);
+		}
+		argv += 1;
+	}
+	if (0 == input_file) {
+		fprintf (stderr, "error: no input file\n");
+		exit (1);
 	}
 
+#if DebugMode
+#else
+	freopen ("NUL", "w", stderr);
+	// freopen ("NUL", "w", stdout);
+#endif
 
-	// parse_unit (unit, tokens);
+	g_is_build32 = flags[Flag (build32)];
 
-	printf ("END!\n");
+	char	path[256];
+	char	filename[64];
+	int		result;
 
+	if (make_path_from_relative (path, working_path, input_file)) {
+		char	*ptr;
+
+		ptr = strrchr (path, '\\');
+		Assert (ptr);
+		strncpy (working_path, path, (ptr - path) + 1);
+		working_path[(ptr - path) + 1] = 0;
+		strcpy (filename, ptr + 1);
+		fprintf (stdout, "%s\n", filename);
+		result = run_compiler (filename, include_path, working_path, flags);
+	} else {
+		Error ("cannot create relative path");
+		result = 0;
+	}
+
+	if (result) {
+		fprintf (stdout, "\ndone\n");
+	} else {
+		fprintf (stdout, "\nfailed\n");
+	}
+	return (result == 0);
 }
 
+#pragma comment (lib, "Shlwapi.lib")
 
 
 

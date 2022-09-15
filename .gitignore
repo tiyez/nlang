@@ -1,8 +1,11 @@
 *.exe
-*.n
+*.n.c
 *.txt
 *.obj
 ctest.c
 *.ilk
 *.pdb
 .vs
+release
+sln
+*.obj

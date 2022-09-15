@@ -1,42 +1,42 @@
 
-int		allocate_typeinfo (struct unit *unit, enum typeinfo_kind kind, int type_decl_index) {
+int		allocate_typeinfo (struct unit *unit, enum typeinfo_kind kind, uint type_decl_index) {
 	int		index;
 
-	if (Prepare_Array (unit->typeinfos, 1)) {
+	if (Prepare_Bucket (unit->typeinfos, 1)) {
 		struct typeinfo	*typeinfo;
 
-		typeinfo = Push_Array (unit->typeinfos);
+		typeinfo = Push_Bucket (unit->typeinfos);
 		typeinfo->count = 1;
 		typeinfo->kind = kind;
-		typeinfo->typeinfo = -1;
-		typeinfo->members = -1;
-		typeinfo->size = -1;
+		typeinfo->typeinfo = 0;
+		typeinfo->members = 0;
+		typeinfo->size = 0;
 		typeinfo->type_decl_index = type_decl_index;
-		index = Get_Element_Index (unit->typeinfos, typeinfo);
+		index = Get_Bucket_Element_Index (unit->typeinfos, typeinfo);
 	} else {
 		Error ("cannot prepare typeinfos array");
-		index = -1;
+		index = 0;
 	}
 	return (index);
 }
 
-struct typeinfo	*get_typeinfo (struct unit *unit, int index) {
+struct typeinfo	*get_typeinfo (struct unit *unit, uint index) {
 	struct typeinfo	*typeinfo;
 
-	Assert (index >= 0 && index < Get_Array_Count (unit->typeinfos));
-	typeinfo = unit->typeinfos + index;
+	Assert (Is_Bucket_Index_Valid (unit->typeinfos, index));
+	typeinfo = Get_Bucket_Element (unit->typeinfos, index);
 	return (typeinfo);
 }
 
-int		get_typeinfo_index (struct unit *unit, struct typeinfo *typeinfo) {
-	return (Get_Element_Index (unit->typeinfos, typeinfo));
+uint	get_typeinfo_index (struct unit *unit, struct typeinfo *typeinfo) {
+	return (Get_Bucket_Element_Index (unit->typeinfos, typeinfo));
 }
 
-int		make_typeinfo_basic (struct unit *unit, enum basictype basic, int type_index) {
-	int		index;
+uint	make_typeinfo_basic (struct unit *unit, enum basictype basic, uint type_index) {
+	uint	index;
 
 	index = allocate_typeinfo (unit, TypeInfo_Kind (basic), type_index);
-	if (index >= 0) {
+	if (index) {
 		struct typeinfo	*typeinfo;
 
 		typeinfo = get_typeinfo (unit, index);
@@ -46,115 +46,222 @@ int		make_typeinfo_basic (struct unit *unit, enum basictype basic, int type_inde
 	return (index);
 }
 
-int		make_typeinfo_tag (struct unit *unit, enum tagtype tagtype, int decl_index) {
-	int					index;
+uint	make_typeinfo_tag (struct unit *unit, enum tagtype tagtype, uint decl_index) {
+	uint				index;
 	enum typeinfo_kind	kind;
 
-	switch (tagtype) {
-		case TagType (struct): kind = TypeInfo_Kind (struct); break ;
-		case TagType (enum): kind = TypeInfo_Kind (enum); break ;
-		case TagType (union): kind = TypeInfo_Kind (union); break ;
-		default: Unreachable ();
+	if (tagtype == TagType (struct)) {
+		kind = TypeInfo_Kind (struct);
+	} else if (tagtype == TagType (enum)) {
+		kind = TypeInfo_Kind (enum);
+	} else if (tagtype == TagType (union)) {
+		kind = TypeInfo_Kind (union);
+	} else {
+		Unreachable ();
 	}
 	index = allocate_typeinfo (unit, kind, decl_index);
 	return (index);
 }
 
-int		make_typeinfo_mod (struct unit *unit, enum typemod mod, int type_index) {
-	int					index;
+uint	make_typeinfo_mod (struct unit *unit, enum typemod mod, uint type_index) {
+	uint				index;
 	enum typeinfo_kind	kind;
 
-	switch (mod) {
-		case TypeMod (pointer): kind = TypeInfo_Kind (pointer); break ;
-		case TypeMod (array): kind = TypeInfo_Kind (array); break ;
-		case TypeMod (function): kind = TypeInfo_Kind (function); break ;
-		default: Unreachable ();
+	if (mod == TypeMod (pointer)) {
+		kind = TypeInfo_Kind (pointer);
+	} else if (mod == TypeMod (array)) {
+		kind = TypeInfo_Kind (array);
+	} else if (mod == TypeMod (function)) {
+		kind = TypeInfo_Kind (function);
+	} else {
+		Unreachable ();
 	}
 	index = allocate_typeinfo (unit, kind, type_index);
 	return (index);
 }
 
-int		make_typemember (struct unit *unit, int decl_index) {
-	int		index;
+uint	make_typemember (struct unit *unit, uint decl_index) {
+	uint	index;
 
-	if (Prepare_Array (unit->typemembers, 1)) {
+	if (Prepare_Bucket (unit->typemembers, 1)) {
 		struct typemember	*member;
 
-		member = Push_Array (unit->typemembers);
-		member->typeinfo = -1;
+		member = Push_Bucket (unit->typemembers);
+		member->typeinfo = 0;
 		member->decl_index = decl_index;
-		index = Get_Element_Index (unit->typemembers, member);
+		index = Get_Bucket_Element_Index (unit->typemembers, member);
 	} else {
-		index = -1;
+		index = 0;
 	}
 	return (index);
 }
 
-struct typemember	*get_typemember (struct unit *unit, int index) {
-	Assert (index >= 0 && index < Get_Array_Count (unit->typemembers));
-	return (unit->typemembers + index);
+struct typemember	*get_typemember (struct unit *unit, uint index) {
+	Assert (Is_Bucket_Index_Valid (unit->typemembers, index));
+	return (Get_Bucket_Element (unit->typemembers, index));
 }
 
-int		get_typemember_index (struct unit *unit, struct typemember *member) {
-	return (Get_Element_Index (unit->typemembers, member));
+uint	get_typemember_index (struct unit *unit, struct typemember *member) {
+	return (Get_Bucket_Element_Index (unit->typemembers, member));
 }
 
-int		get_number_of_typemembers (struct unit *unit, int index) {
+int		get_number_of_typemembers (struct unit *unit, uint index) {
 	int		count;
 
 	count = 0;
-	Assert (index >= 0 && index < Get_Array_Count (unit->typemembers));
-	while (unit->typemembers[index + count].decl_index >= 0) {
+	Assert (Is_Bucket_Index_Valid (unit->typemembers, index));
+	while (index && Get_Bucket_Element (unit->typemembers, index)->decl_index) {
 		count += 1;
+		index = Get_Next_Bucket_Index (unit->typemembers, index);
 	}
-	Assert (index + count >= 0 && index + count < Get_Array_Count (unit->typemembers));
+	Assert (index);
 	return (count);
 }
 
-int		link_typeinfo_scope (struct unit *unit, int scope_index, int *out) {
+int		link_typeinfo_scope (struct unit *unit, uint scope_index, uint *out) {
 	int				result;
 	struct scope	*scope;
 
-	*out = -1;
+	*out = 0;
 	scope = get_scope (unit, scope_index);
-	if (scope->decl_begin >= 0) {
+	if (scope->decl_begin) {
 		struct decl	*decl_member;
 
 		decl_member = get_decl (unit, scope->decl_begin);
 		do {
-			int		member_typeinfo;
-			int		member_index;
+			uint	member_index;
 
 			member_index = make_typemember (unit, get_decl_index (unit, decl_member));
-			if (*out < 0) {
+			if (!*out) {
 				*out = member_index;
 			}
-			if (decl_member->type >= 0) {
-				if (link_typeinfo (unit, decl_member->type, &member_typeinfo)) {
-					struct typemember	*member;
-
-					member = get_typemember (unit, member_index);
-					member->name = decl_member->name;
-					member->typeinfo = member_typeinfo;
-					result = 1;
-				} else {
-					result = 0;
-				}
-			} else {
+			if (decl_member->type) {
 				struct typemember	*member;
 
 				member = get_typemember (unit, member_index);
 				member->name = decl_member->name;
+				member->typeinfo = decl_member->type;
+				member->value = 0;
+				member->offset = -1;
+				result = 1;
+			} else if (scope->kind == ScopeKind (param)) {
+				struct typemember	*member;
+
+				member = get_typemember (unit, member_index);
+				member->name = decl_member->name;
+				member->typeinfo = decl_member->type;
+				member->value = 0;
+				member->offset = 0;
+				result = 1;
+			} else if (scope->kind == ScopeKind (tag) && scope->tagtype != TagType (enum)) {
+				struct typemember	*member;
+
+				Assert (scope->kind == ScopeKind (tag));
+				Assert (scope->tagtype == TagType (struct) || scope->tagtype == TagType (union));
+				member = get_typemember (unit, member_index);
+				member->name = 0;
+				Assert (decl_member->block.scope);
+				member->typeinfo = decl_member->block.scope;
+				member->value = 0;
+				member->offset = 0;
+				result = 1;
+			} else {
+				struct typemember	*member;
+
+				Assert (scope->kind == ScopeKind (tag));
+				Assert (scope->tagtype == TagType (enum));
+				member = get_typemember (unit, member_index);
+				member->name = decl_member->name;
+				member->value = decl_member->enumt.expr;
+				member->offset = 0;
 				result = 1;
 			}
-			if (decl_member->next >= 0) {
+			if (decl_member->next) {
 				decl_member = get_decl (unit, decl_member->next);
 			} else {
 				decl_member = 0;
 			}
 		} while (result && decl_member);
 		if (result) {
-			make_typemember (unit, -1);
+			uint	member_index;
+			int		overvalue = 0;
+
+			make_typemember (unit, 0);
+			member_index = *out;
+			while (result && member_index) {
+				struct typemember	*member;
+
+				member = get_typemember (unit, member_index);
+				if (member->name ? 1 : member->typeinfo) {
+					struct evalvalue	value = {0};
+
+					if (scope->kind == ScopeKind (tag)) {
+						if (scope->tagtype == TagType (enum)) {
+							if (member->value) {
+								if (eval_const_expr (unit, member->value, &value)) {
+									if (value.type == EvalType (basic) && is_basictype_integral (value.basic)) {
+										member->value = value.value;
+										member->offset = 0;
+										overvalue = member->value + 1;
+										result = 1;
+									} else {
+										Link_Error (unit, "non-integral value for enum constant");
+										result = 0;
+									}
+								} else {
+									result = 0;
+								}
+							} else {
+								member->value = overvalue;
+								member->offset = 0;
+								overvalue += 1;
+								result = 1;
+							}
+						} else if (scope->tagtype == TagType (struct) || scope->tagtype == TagType (union)) {
+							if (member->name) {
+								uint	typeinfo_index;
+
+								if (link_typeinfo (unit, member->typeinfo, &typeinfo_index)) {
+									get_typemember (unit, member_index)->typeinfo = typeinfo_index;
+									result = 1;
+								} else {
+									result = 0;
+								}
+							} else {
+								uint	typeinfo_index;
+
+								Assert (member->typeinfo);
+								if (link_typeinfo_scope (unit, member->typeinfo, &typeinfo_index)) {
+									get_typemember (unit, member_index)->typeinfo = typeinfo_index;
+									result = 1;
+								} else {
+									result = 0;
+								}
+							}
+						} else {
+							Unreachable ();
+						}
+					} else if (scope->kind == ScopeKind (param)) {
+						uint	typeinfo_index;
+
+						if (member->typeinfo) {
+							if (link_typeinfo (unit, member->typeinfo, &typeinfo_index)) {
+								get_typemember (unit, member_index)->typeinfo = typeinfo_index;
+								result = 1;
+							} else {
+								result = 0;
+							}
+						} else {
+							result = 1;
+						}
+					} else {
+						Unreachable ();
+					}
+					member_index = Get_Next_Bucket_Index (unit->typemembers, member_index);
+				} else {
+					member_index = 0;
+				}
+			}
 		}
 	} else {
 		result = 1;
@@ -162,78 +269,87 @@ int		link_typeinfo_scope (struct unit *unit, int scope_index, int *out) {
 	return (result);
 }
 
-int		link_typeinfo (struct unit *unit, int type_index, int *out) {
+int		link_typeinfo (struct unit *unit, uint type_index, uint *out) {
 	int			result;
 	struct type	*type;
 
-	*out = -1;
+	*out = 0;
 	type = get_type (unit, type_index);
-	switch (type->kind) {
-		case TypeKind (basic): {
-			*out = make_typeinfo_basic (unit, type->basic.type, type_index);
-			result = 1;
-		} break ;
-		case TypeKind (mod): {
-			int		typeinfo_index, inner_typeinfo_index;
+	if (type->kind == TypeKind (basic)) {
+		struct typeinfo	*typeinfo;
 
-			typeinfo_index = make_typeinfo_mod (unit, type->mod.kind, type_index);
-			if (link_typeinfo (unit, *get_type_mod_forward_ptr (type), &inner_typeinfo_index)) {
-				struct typeinfo	*typeinfo;
+		*out = make_typeinfo_basic (unit, type->basic.type, type_index);
+		typeinfo = get_typeinfo (unit, *out);
+		typeinfo->qualifiers = 0;
+		typeinfo->qualifiers |= (type->flags.is_const ? TypeQualifier (const) : 0);
+		typeinfo->qualifiers |= (type->flags.is_volatile ? TypeQualifier (volatile) : 0);
+		result = 1;
+	} else if (type->kind == TypeKind (mod)) {
+		uint	inner_typeinfo_index;
 
-				typeinfo = get_typeinfo (unit, typeinfo_index);
-				typeinfo->typeinfo = inner_typeinfo_index;
-				if (type->mod.kind == TypeMod (array)) {
-					typeinfo->size = type->mod.array.expr;
-					result = 1;
-				} else if (type->mod.kind == TypeMod (function)) {
-					int		member_table;
+		*out = make_typeinfo_mod (unit, type->mod.kind, type_index);
+		if (link_typeinfo (unit, type->mod.forward, &inner_typeinfo_index)) {
+			struct typeinfo	*typeinfo;
 
-					result = link_typeinfo_scope (unit, type->mod.func.param_scope, &member_table);
-					if (result) {
-						typeinfo = get_typeinfo (unit, typeinfo_index);
-						typeinfo->members = member_table;
-					}
-				} else {
-					result = 1;
+			typeinfo = get_typeinfo (unit, *out);
+			typeinfo->typeinfo = inner_typeinfo_index;
+			if (type->mod.kind == TypeMod (array)) {
+				typeinfo->size = type->mod.expr;
+				typeinfo->qualifiers = 0;
+				typeinfo->qualifiers |= (type->flags.is_const ? TypeQualifier (const) : 0);
+				typeinfo->qualifiers |= (type->flags.is_volatile ? TypeQualifier (volatile) : 0);
+				typeinfo->qualifiers |= (type->flags.is_restrict ? TypeQualifier (restrict) : 0);
+				result = 1;
+			} else if (type->mod.kind == TypeMod (pointer)) {
+				typeinfo->qualifiers = 0;
+				typeinfo->qualifiers |= (type->flags.is_const ? TypeQualifier (const) : 0);
+				typeinfo->qualifiers |= (type->flags.is_volatile ? TypeQualifier (volatile) : 0);
+				typeinfo->qualifiers |= (type->flags.is_restrict ? TypeQualifier (restrict) : 0);
+				result = 1;
+			} else if (type->mod.kind == TypeMod (function)) {
+				uint	member_table;
+
+				result = link_typeinfo_scope (unit, type->mod.param_scope, &member_table);
+				if (result) {
+					typeinfo = get_typeinfo (unit, *out);
+					typeinfo->members = member_table;
 				}
-			} else {
-				result = 0;
-			}
-		} break ;
-		case TypeKind (group): {
-			result = link_typeinfo (unit, type->group.type, out);
-		} break ;
-		case TypeKind (typeof): {
-			Unreachable ();
-		} break ;
-		case TypeKind (tag):
-		case TypeKind (decl): {
-			int		decl_index;
-			struct decl	*decl;
-
-			if (type->kind == TypeKind (tag)) {
-				decl_index = type->tag.decl;
-			} else if (type->kind == TypeKind (decl)) {
-				decl_index = type->decl.index;
 			} else {
 				Unreachable ();
 			}
-			decl = get_decl (unit, decl_index);
-			Assert (decl->kind == DeclKind (tag));
-			*out = make_typeinfo_tag (unit, decl->tag.type, decl_index);
-			if (decl->tag.member_table < 0) {
-				result = link_typeinfo_scope (unit, decl->tag.scope, &decl->tag.member_table);
-			} else {
-				result = 1;
-			}
-			if (result) {
-				struct typeinfo	*typeinfo;
+		} else {
+			result = 0;
+		}
+	} else if (type->kind == TypeKind (typeof)) {
+		Unreachable ();
+	} else if (type->kind == TypeKind (tag)) {
+		uint		decl_index;
+		struct decl	*decl;
 
-				typeinfo = get_typeinfo (unit, *out);
-				typeinfo->members = decl->tag.member_table;
-				typeinfo->tagname = decl->name;
-			}
-		} break ;
+		Assert (type->tag.decl);
+		decl_index = type->tag.decl;
+		decl = get_decl (unit, decl_index);
+		Assert (decl->kind == DeclKind (tag));
+		*out = make_typeinfo_tag (unit, decl->tag.type, decl_index);
+		if (!decl->tag.member_table) {
+			result = link_typeinfo_scope (unit, decl->tag.scope, &decl->tag.member_table);
+		} else {
+			result = 1;
+		}
+		if (result) {
+			struct typeinfo	*typeinfo;
+
+			typeinfo = get_typeinfo (unit, *out);
+			typeinfo->members = decl->tag.member_table;
+			typeinfo->tagname = decl->name;
+			typeinfo->qualifiers = 0;
+			typeinfo->qualifiers |= (type->flags.is_const ? TypeQualifier (const) : 0);
+			typeinfo->qualifiers |= (type->flags.is_volatile ? TypeQualifier (volatile) : 0);
+		}
+	} else {
+		Unreachable ();
 	}
 	return (result);
 }
+
+

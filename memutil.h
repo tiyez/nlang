@@ -45,8 +45,7 @@ typedef uint32		uint;
 #	define Is_Memory_Size_64 0
 #endif
 
-inline usize	to_power_of_two (usize val)
-{
+inline usize	to_power_of_two (usize val) {
 	val--;
 	val |= val >> 1;
 	val |= val >> 2;
@@ -60,18 +59,15 @@ inline usize	to_power_of_two (usize val)
 	return (val);
 }
 
-inline usize	to_page_size (usize val)
-{
+inline usize	to_page_size (usize val) {
 	return ((val + Memory_Page - 1) & ~(Memory_Page - 1));
 }
 
-inline usize	get_aligned_value (usize value, usize alignment)
-{
+inline usize	get_aligned_value (usize value, usize alignment) {
 	return ((value + alignment - 1) & ~(alignment - 1));
 }
 
-inline usize	get_alignment_diff (usize value, usize alignment)
-{
+inline usize	get_alignment_diff (usize value, usize alignment) {
 	return (((value + alignment - 1) & ~(alignment - 1)) - value);
 }
 

@@ -1,0 +1,57 @@
+
+#manifest {
+	libs {
+		"@cstd";
+	}
+}
+
+
+#macro Macro_Empty_Parameters() {
+	1;
+}
+#macro Macro_One_Parameter (a) {
+	1 + a;
+}
+#macro Macro_Two_Parameters (a, b) {
+	1 + a + b;
+}
+#macro Macro_Three_Parameters (a, b, c) {
+	1 + a + b + c;
+}
+#macro Macro_One_Variadic_Parameters (...) {
+	Macro_One_Parameter (...);
+}
+#macro Macro_Two_Variadic_Parameters (...) {
+	Macro_Two_Parameters (...);
+}
+#macro Macro_Three_Variadic_Parameters (...) {
+	Macro_Three_Parameters (...);
+}
+#macro Macro_One_and_One_Variadic_Parameters (a, ...) {
+	Macro_Two_Parameters (a, ...);
+}
+#macro Macro_One_and_Two_Variadic_Parameters (a, ...) {
+	Macro_Three_Parameters (a, ...);
+}
+#macro Macro_Two_One_Variadic_Parameters (a, b, ...) {
+	Macro_Three_Parameters (a, b, ...);
+}
+
+main	int (argc int, argv (*char)[]) {
+	printf ("%d\n", Macro_Empty_Parameters ());
+	printf ("%d\n", Macro_One_Parameter (1));
+	printf ("%d\n", Macro_Two_Parameters (1, 5));
+	printf ("%d\n", Macro_Three_Parameters (1, 5, 9));
+	printf ("%d\n", Macro_One_Variadic_Parameters (1));
+	printf ("%d\n", Macro_Two_Variadic_Parameters (1, 5));
+	printf ("%d\n", Macro_Three_Variadic_Parameters (1, 5, 9));
+	printf ("%d\n", Macro_One_and_One_Variadic_Parameters (1, 5));
+	printf ("%d\n", Macro_One_and_Two_Variadic_Parameters (1, 5, 9));
+	printf ("%d\n", Macro_Two_One_Variadic_Parameters (1, 5, 9));
+	result = 1;
+}
+
+
+
+
+

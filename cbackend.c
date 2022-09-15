@@ -1,606 +1,650 @@
 
 
-int		c_backend_translate_tag_name (enum tagtype tagtype, const char *tagname, struct cbuffer *buffer) {
-	int		result;
+const char	*get_tag_name (int unit_index, enum tagtype tagtype, const char *tagname) {
+	static char	buffer[128];
 
-	result = write_format (buffer->wr, "%s %c_%s", g_tagname[tagtype], g_tagname[tagtype][0], tagname);
-	return (result);
+	snprintf (buffer, sizeof buffer, "%s u%d%c_%s", g_tagname[tagtype], unit_index, g_tagname[tagtype][0], tagname);
+	return (buffer);
 }
 
-int		c_backend_translate_macro_name (const char *name, struct cbuffer *buffer) {
-	int		result;
+const char	*get_enum_name (int unit_index, const char *tagname, const char *name) {
+	static char	buffer[128];
 
-	result = write_format (buffer->wr, "M_%s", name);
-	return (result);
+	snprintf (buffer, sizeof buffer, "u%de_%s__%s", unit_index, tagname, name);
+	return (buffer);
 }
 
-int		c_backend_translate_enum_name (const char *tagname, const char *name, struct cbuffer *buffer) {
-	int		result;
+const char	*get_enum_table_name (int unit_index, const char *enum_name, const char *table_name) {
+	static char	buffer[128];
 
-	result = write_format (buffer->wr, "e_%s_%s", tagname, name);
-	return (result);
+	snprintf (buffer, sizeof buffer, "g_u%det_%s_%s", unit_index, enum_name, table_name);
+	return (buffer);
 }
 
-int		c_backend_translate_const_name (const char *name, struct cbuffer *buffer) {
-	int		result;
+const char	*get_global_decl_name (int unit_index, const char *name) {
+	static char	buffer[128];
 
-	result = write_format (buffer->wr, "CONST_%s", name);
-	return (result);
+	snprintf (buffer, sizeof buffer, "u%d_%s", unit_index, name);
+	return (buffer);
 }
 
+const char	*get_local_decl_name (const char *name) {
+	static char	buffer[128];
 
-int		c_backend_translate_param_scope (struct unit *unit, int scope_index, struct cbuffer *buffer);
+	snprintf (buffer, sizeof buffer, "_%s", name);
+	return (buffer);
+}
 
-void	c_backend_translate_typemod (struct unit *unit, struct type **types, int index, const char *iden, struct cbuffer *buffer) {
+int		cbackend_param_scope (struct unit *unit, uint scope_index, struct cbuffer *buffer);
+
+void	cbackend_typemod (struct unit *unit, struct type **types, int index, const char *iden, const char *prefix, struct cbuffer *buffer) {
 	if (index < 0) {
 		if (iden) {
+			if (prefix) {
+				write_string (buffer->wr, prefix);
+				write_string (buffer->wr, " ");
+			}
 			write_string (buffer->wr, iden);
 		}
 	} else {
 		struct type	*type;
 
 		type = types[index];
-		if (type->kind == TypeKind (group)) {
-			c_backend_translate_typemod (unit, types, index - 1, iden, buffer);
+		Assert (type->kind == TypeKind (mod));
+		if (type->mod.kind == TypeMod (pointer)) {
+			write_string (buffer->wr, "*");
+			if (type->flags.is_const) {
+				write_string (buffer->wr, "const ");
+			}
+			cbackend_typemod (unit, types, index - 1, iden, prefix, buffer);
 		} else {
-			Assert (type->kind == TypeKind (mod));
-			if (type->mod.kind == TypeMod (pointer)) {
-				write_string (buffer->wr, "*");
-				c_backend_translate_typemod (unit, types, index - 1, iden, buffer);
+			if (index > 0 && types[index - 1]->mod.kind == TypeMod (pointer)) {
+				write_string (buffer->wr, "(");
+				cbackend_typemod (unit, types, index - 1, iden, prefix, buffer);
+				write_string (buffer->wr, ")");
 			} else {
-				if (index > 0 && types[index - 1]->mod.kind == TypeMod (pointer)) {
-					write_string (buffer->wr, "(");
-					c_backend_translate_typemod (unit, types, index - 1, iden, buffer);
+				cbackend_typemod (unit, types, index - 1, iden, prefix, buffer);
+			}
+			if (type->mod.kind == TypeMod (array)) {
+				if (type->mod.expr) {
+					struct unit	*decl_unit;
+
+					if (is_lib_index (type->mod.expr)) {
+						decl_unit = get_lib (get_lib_index (type->mod.expr));
+					} else {
+						decl_unit = unit;
+					}
+					write_string (buffer->wr, "[");
+					cbackend_expr (decl_unit, unlib_index (type->mod.expr), buffer);
+					write_string (buffer->wr, "]");
+				} else {
+					write_string (buffer->wr, "[]");
+				}
+			} else if (type->mod.kind == TypeMod (function)) {
+				if (type->mod.param_scope) {
+					struct unit	*unit_decl;
+
+					if (is_lib_index (type->mod.param_scope)) {
+						unit_decl = get_lib (get_lib_index (type->mod.param_scope));
+					} else {
+						unit_decl = unit;
+					}
+					write_string (buffer->wr, " (");
+					cbackend_param_scope (unit_decl, unlib_index (type->mod.param_scope), buffer);
 					write_string (buffer->wr, ")");
 				} else {
-					c_backend_translate_typemod (unit, types, index - 1, iden, buffer);
+					write_string (buffer->wr, " ()");
 				}
-				if (type->mod.kind == TypeMod (array)) {
-					write_string (buffer->wr, "[");
-					if (type->mod.array.expr >= 0) {
-						c_backend_translate_expr (unit, type->mod.array.expr, buffer);
-					}
-					write_string (buffer->wr, "]");
-				} else if (type->mod.kind == TypeMod (function)) {
-					write_string (buffer->wr, " (");
-					if (type->mod.func.param_scope >= 0) {
-						c_backend_translate_param_scope (unit, type->mod.func.param_scope, buffer);
-					}
-					write_string (buffer->wr, ")");
-				} else Unreachable ();
-			}
+			} else Unreachable ();
 		}
 	}
 }
 
-int		c_backend_translate_type (struct unit *unit, int type_index, const char *iden, struct cbuffer *buffer) {
+int		cbackend_type (struct unit *unit, uint type_index, const char *iden, const char *prefix, struct cbuffer *buffer) {
 	struct type	*types[Max_Type_Depth], *type;
-	int			types_count, index;
+	int			types_count;
 
 	types_count = 0;
 	type = get_type (unit, type_index);
-	while (type->kind == TypeKind (mod) || type->kind == TypeKind (group)) {
+	while (type->kind == TypeKind (mod)) {
 		Assert (types_count < Array_Count (types));
 		types[types_count] = type;
 		types_count += 1;
-		if (type->kind == TypeKind (group)) {
-			type = get_type (unit, type->group.type);
-		} else {
-			type = get_type (unit, *get_type_mod_forward_ptr (type));
-		}
+		type = get_type (unit, type->mod.forward);
 	}
 	Assert (types_count < Array_Count (types));
 	types[types_count] = type;
 	types_count += 1;
-	index = 0;
 	type = types[types_count - 1];
-	switch (type->kind) {
-		case TypeKind (basic): {
-			if (type->basic.is_const) {
-				write_string (buffer->wr, "const ");
-			}
-			if (type->basic.is_volatile) {
-				write_string (buffer->wr, "volatile ");
-			}
-			switch (type->basic.type) {
-				case BasicType (void): write_string (buffer->wr, "void "); break ;
-				case BasicType (char): write_string (buffer->wr, "char "); break ;
-				case BasicType (uchar): write_string (buffer->wr, "unsigned char "); break ;
-				case BasicType (wchar): write_string (buffer->wr, "wchar_t "); break ;
-				case BasicType (byte): write_string (buffer->wr, "char "); break ;
-				case BasicType (ubyte): write_string (buffer->wr, "unsigned char "); break ;
-				case BasicType (short): write_string (buffer->wr, "short "); break ;
-				case BasicType (ushort): write_string (buffer->wr, "unsigned short "); break ;
-				case BasicType (int): write_string (buffer->wr, "int "); break ;
-				case BasicType (uint): write_string (buffer->wr, "unsigned int "); break ;
-				case BasicType (size): write_string (buffer->wr, "long long "); break ;
-				case BasicType (usize): write_string (buffer->wr, "unsigned long long "); break ;
-				case BasicType (float): write_string (buffer->wr, "float "); break ;
-				case BasicType (double): write_string (buffer->wr, "double "); break ;
-				default: Unreachable ();
-			}
-		} break ;
-		case TypeKind (decl): {
-			struct decl	*decl;
+	if (type->kind == TypeKind (basic)) {
+		if (type->flags.is_const) {
+			write_string (buffer->wr, "const ");
+		}
+		if (type->flags.is_volatile) {
+			write_string (buffer->wr, "volatile ");
+		}
+		write_string (buffer->wr, g_basictype_c_name[type->basic.type]);
+		write_string (buffer->wr, " ");
+	} else if (type->kind == TypeKind (tag)) {
+		struct decl	*decl;
+		struct unit	*decl_unit;
 
-			if (type->decl.is_const) {
-				write_string (buffer->wr, "const ");
-			}
-			if (type->decl.is_volatile) {
-				write_string (buffer->wr, "volatile ");
-			}
-			decl = get_decl (unit, type->decl.index);
-			switch (decl->kind) {
-				case DeclKind (tag): {
-					c_backend_translate_tag_name (decl->tag.type, decl->name, buffer);
-					write_string (buffer->wr, " ");
-				} break ;
-				default: Unreachable ();
-			}
-		} break ;
-		default: Debug ("kind: %d", type->kind); Unreachable ();
+		if (type->flags.is_const) {
+			write_string (buffer->wr, "const ");
+		}
+		if (type->flags.is_volatile) {
+			write_string (buffer->wr, "volatile ");
+		}
+		Assert (type->tag.decl);
+		if (is_lib_index (type->tag.decl)) {
+			decl_unit = get_lib (get_lib_index (type->tag.decl));
+		} else {
+			decl_unit = unit;
+		}
+		decl = get_decl (decl_unit, unlib_index (type->tag.decl));
+		if (decl->kind == DeclKind (tag)) {
+			write_string (buffer->wr, get_tag_name (decl_unit->flags[Flag (unit_index)], decl->tag.type, decl->name));
+			write_string (buffer->wr, " ");
+		} else {
+			Unreachable ();
+		}
+	} else {
+		Unreachable ();
 	}
 	types_count -= 1;
-	c_backend_translate_typemod (unit, types, types_count - 1, iden, buffer);
+	cbackend_typemod (unit, types, types_count - 1, iden, prefix, buffer);
 	return (1);
 }
 
-int		c_backend_translate_typename (struct unit *unit, int type_index, struct cbuffer *buffer) {
-	return (c_backend_translate_type (unit, type_index, 0, buffer));
+int		cbackend_typename (struct unit *unit, uint type_index, struct cbuffer *buffer) {
+	return (cbackend_type (unit, type_index, 0, 0, buffer));
 }
 
-int		c_backend_translate_expr (struct unit *unit, int expr_index, struct cbuffer *buffer) {
+int		cbackend_expr (struct unit *unit, uint expr_index, struct cbuffer *buffer) {
 	int			result;
 	struct expr	*expr;
 
 	expr = get_expr (unit, expr_index);
-	switch (expr->type) {
-		case ExprType (op): {
-			switch (expr->op.type) {
-				case OpType (group): {
-					write_string (buffer->wr, "(");
-					if (c_backend_translate_expr (unit, expr->op.forward, buffer)) {
-						result = 1;
+	if (expr->type == ExprType (op)) {
+		if (expr->op.type == OpType (group)) {
+			write_string (buffer->wr, "(");
+			if (cbackend_expr (unit, expr->op.forward, buffer)) {
+				result = 1;
+				write_string (buffer->wr, ")");
+			} else {
+				result = 0;
+			}
+		} else if (expr->op.type == OpType (function_call)) {
+			if (cbackend_expr (unit, expr->op.forward, buffer)) {
+				if (expr->op.backward) {
+					write_string (buffer->wr, " (");
+					if (cbackend_expr (unit, expr->op.backward, buffer)) {
 						write_string (buffer->wr, ")");
-					} else {
-						result = 0;
-					}
-				} break ;
-				case OpType (function_call): {
-					struct expr	*forward;
-
-					forward = get_expr (unit, expr->op.forward);
-					if (forward->type == ExprType (identifier) && forward->iden.decl >= 0 && get_decl (unit, forward->iden.decl)->kind == DeclKind (accessor)) {
-						struct decl	*accessor, *enumer;
-						struct expr	*backward;
-
-						accessor = get_decl (unit, forward->iden.decl);
-						backward = get_expr (unit, expr->op.backward);
-						Assert (backward->type == ExprType (funcparam));
-						Assert (backward->funcparam.next < 0);
-						Assert (backward->funcparam.expr >= 0);
-						backward = get_expr (unit, backward->funcparam.expr);
-						Assert (backward->type == ExprType (identifier));
-						enumer = get_decl (unit, backward->iden.decl);
-						c_backend_translate_enum_name (accessor->accessor.name, enumer->name, buffer);
 						result = 1;
 					} else {
-						if (c_backend_translate_expr (unit, expr->op.forward, buffer)) {
-							if (expr->op.backward >= 0) {
-								write_string (buffer->wr, " (");
-								if (c_backend_translate_expr (unit, expr->op.backward, buffer)) {
-									write_string (buffer->wr, ")");
-									result = 1;
-								} else {
-									result = 0;
-								}
-							} else {
-								write_string (buffer->wr, " ()");
-								result = 1;
-							}
-						} else {
-							result = 0;
-						}
+						result = 0;
 					}
-				} break ;
-				case OpType (array_subscript): {
-					if (c_backend_translate_expr (unit, expr->op.forward, buffer)) {
-						if (expr->op.backward >= 0) {
-							write_string (buffer->wr, "[");
-							if (c_backend_translate_expr (unit, expr->op.backward, buffer)) {
-								write_string (buffer->wr, "]");
-								result = 1;
-							} else {
-								result = 0;
-							}
-						} else {
-							write_string (buffer->wr, "[]");
-							result = 1;
-						}
+				} else {
+					write_string (buffer->wr, " ()");
+					result = 1;
+				}
+			} else {
+				result = 0;
+			}
+		} else if (expr->op.type == OpType (array_subscript)) {
+			if (cbackend_expr (unit, expr->op.forward, buffer)) {
+				if (expr->op.backward) {
+					write_string (buffer->wr, "[");
+					if (cbackend_expr (unit, expr->op.backward, buffer)) {
+						write_string (buffer->wr, "]");
+						result = 1;
 					} else {
 						result = 0;
 					}
-				} break ;
-				case OpType (cast): {
-					write_string (buffer->wr, "(");
-					if (c_backend_translate_typename (unit, expr->op.backward, buffer)) {
-						write_string (buffer->wr, ") ");
-						result = c_backend_translate_expr (unit, expr->op.forward, buffer);
-					} else {
-						result = 0;
-					}
-				} break ;
-				default: {
-					if (is_expr_unary (expr)) {
-						if (is_expr_postfix (expr)) {
-							result = c_backend_translate_expr (unit, expr->op.forward, buffer);
-							write_string (buffer->wr, g_opentries[expr->op.type].token);
-						} else {
-							write_string (buffer->wr, g_opentries[expr->op.type].token);
-							result = c_backend_translate_expr (unit, expr->op.forward, buffer);
-						}
-					} else {
-						if (c_backend_translate_expr (unit, expr->op.backward, buffer)) {
-							if (is_expr_postfix (expr)) {
-								write_string (buffer->wr, g_opentries[expr->op.type].token);
-							} else {
-								write_format (buffer->wr, " %s ", g_opentries[expr->op.type].token);
-							}
-							result = c_backend_translate_expr (unit, expr->op.forward, buffer);
-						} else {
-							result = 0;
-						}
-					}
-				} break ;
-			}
-		} break ;
-		case ExprType (constant): {
-			if (is_basictype_integral (expr->constant.type)) {
-				if (is_basictype_signed (expr->constant.type)) {
-					result = write_format (buffer->wr, "%zd", expr->constant.value);
 				} else {
-					result = write_format (buffer->wr, "%zu", expr->constant.uvalue);
+					write_string (buffer->wr, "[]");
+					result = 1;
 				}
 			} else {
-				result = write_format (buffer->wr, "%f", expr->constant.fvalue);
+				result = 0;
 			}
-		} break ;
-		case ExprType (identifier): {
-			if (expr->iden.decl >= 0) {
-				struct decl	*decl;
-
-				decl = get_decl (unit, expr->iden.decl);
-				if (decl->kind == DeclKind (const)) {
-					result = c_backend_translate_const_name (decl->name, buffer);
-				} else if (decl->kind == DeclKind (macro)) {
-					result = c_backend_translate_macro_name (decl->name, buffer);
+		} else if (expr->op.type == OpType (cast)) {
+			write_string (buffer->wr, "(");
+			if (cbackend_typename (unit, expr->op.backward, buffer)) {
+				write_string (buffer->wr, ") ");
+				result = cbackend_expr (unit, expr->op.forward, buffer);
+			} else {
+				result = 0;
+			}
+		} else if (expr->op.type == OpType (member_access)) {
+			if (cbackend_expr (unit, expr->op.backward, buffer)) {
+				write_string (buffer->wr, g_opentries[expr->op.type].token);
+				result = cbackend_expr (unit, expr->op.forward, buffer);
+			} else {
+				result = 0;
+			}
+		} else if (expr->op.type == OpType (sizeof) || expr->op.type == OpType (alignof)) {
+			write_string (buffer->wr, g_opentries[expr->op.type].token);
+			write_string (buffer->wr, " ");
+			result = cbackend_expr (unit, expr->op.forward, buffer);
+		} else {
+			if (is_expr_unary (expr)) {
+				if (is_expr_postfix (expr)) {
+					result = cbackend_expr (unit, expr->op.forward, buffer);
+					write_string (buffer->wr, g_opentries[expr->op.type].token);
 				} else {
-					result = write_string (buffer->wr, decl->name);
+					write_string (buffer->wr, g_opentries[expr->op.type].token);
+					result = cbackend_expr (unit, expr->op.forward, buffer);
 				}
 			} else {
-				result = write_string (buffer->wr, expr->iden.name);
+				if (cbackend_expr (unit, expr->op.backward, buffer)) {
+					if (is_expr_postfix (expr)) {
+						write_string (buffer->wr, g_opentries[expr->op.type].token);
+					} else {
+						write_format (buffer->wr, " %s ", g_opentries[expr->op.type].token);
+					}
+					result = cbackend_expr (unit, expr->op.forward, buffer);
+				} else {
+					result = 0;
+				}
 			}
-		} break ;
-		case ExprType (funcparam): {
-			if (c_backend_translate_expr (unit, expr->funcparam.expr, buffer)) {
-				if (expr->funcparam.next >= 0) {
-					write_string (buffer->wr, ", ");
-					result = c_backend_translate_expr (unit, expr->funcparam.next, buffer);
+		}
+	} else if (expr->type == ExprType (constant)) {
+		if (is_basictype_integral (expr->constant.type)) {
+			if (is_basictype_signed (expr->constant.type)) {
+				if (write_format (buffer->wr, "%zd", expr->constant.value)) {
+					if (is_basictype_with_l_suffix (expr->constant.type)) {
+						result = write_string (buffer->wr, "l");
+					} else if (is_basictype_with_ll_suffix (expr->constant.type)) {
+						result = write_string (buffer->wr, "ll");
+					} else {
+						result = 1;
+					}
+				}
+			} else {
+				if (write_format (buffer->wr, "%zu", expr->constant.uvalue)) {
+					if (is_basictype_with_l_suffix (expr->constant.type)) {
+						result = write_string (buffer->wr, "ul");
+					} else if (is_basictype_with_ll_suffix (expr->constant.type)) {
+						result = write_string (buffer->wr, "ull");
+					} else {
+						result = 1;
+					}
+				} else {
+					result = 0;
+				}
+			}
+		} else {
+			if (write_format (buffer->wr, "%f", expr->constant.fvalue)) {
+				if (expr->constant.type == BasicType (float)) {
+					result = write_string (buffer->wr, "f");
+				} else if (expr->constant.type == BasicType (longdouble)) {
+					result = write_string (buffer->wr, "l");
 				} else {
 					result = 1;
 				}
 			} else {
 				result = 0;
 			}
-		} break ;
-		case ExprType (typeinfo): {
-			if (expr->typeinfo.decl >= 0) {
-				struct decl	*decl;
+		}
+	} else if (expr->type == ExprType (identifier)) {
+		struct decl	*decl;
+		struct unit	*decl_unit;
 
-				decl = get_decl (unit, expr->typeinfo.decl);
-				Assert (decl->kind == DeclKind (typeinfo));
-				Assert (decl->type >= 0);
-				write_format (buffer->wr, "(g_typeinfos[%d])", decl->type);
-				result = 1;
+		Assert (expr->iden.decl);
+		if (is_lib_index (expr->iden.decl)) {
+			decl_unit = Get_Bucket_Element (g_libs, get_lib_index (expr->iden.decl));
+		} else {
+			decl_unit = unit;
+		}
+		decl = get_decl (decl_unit, unlib_index (expr->iden.decl));
+		if (decl->is_global) {
+			if (decl->kind == DeclKind (define) && decl->define.kind == DefineKind (external)) {
+				result = write_string (buffer->wr, decl->name);
 			} else {
-				Error ("no decl for typeinfo");
-				result = 0;
+				result = write_string (buffer->wr, get_global_decl_name (decl_unit->flags[Flag (unit_index)], decl->name));
 			}
-		} break ;
-		case ExprType (macroparam): {
-			result = write_format (buffer->wr, "(%s)", expr->macroparam.name);
-		} break ;
-		case ExprType (string): {
-			char	unescaped[4 * 1024];
-			usize	size;
+		} else {
+			result = write_string (buffer->wr, get_local_decl_name (decl->name));
+		}
+	} else if (expr->type == ExprType (funcparam)) {
+		if (cbackend_expr (unit, expr->funcparam.expr, buffer)) {
+			if (expr->funcparam.next) {
+				write_string (buffer->wr, ", ");
+				result = cbackend_expr (unit, expr->funcparam.next, buffer);
+			} else {
+				result = 1;
+			}
+		} else {
+			result = 0;
+		}
+	} else if (expr->type == ExprType (typeinfo)) {
+		if (expr->typeinfo.index) {
+			struct decl	*decl;
+			struct unit	*decl_unit;
 
-			if (unescape_string (&expr->string.token, unescaped, sizeof unescaped, &size)) {
-				write_string (buffer->wr, "\"");
-				write_string_n (buffer->wr, unescaped, size);
-				write_string (buffer->wr, "\"");
-				result = 1;
+			if (expr->typeinfo.lib_index) {
+				decl_unit = get_lib (expr->typeinfo.lib_index);
 			} else {
-				Error ("string too long");
-				result = 0;
+				decl_unit = unit;
 			}
-		} break ;
-		default: Debug ("type %d", expr->type); Unreachable ();
+			write_format (buffer->wr, "(%s[%d])", get_global_decl_name (decl_unit->flags[Flag (unit_index)], "typeinfos__"), Get_Bucket_OrdIndex (decl_unit->typeinfos, expr->typeinfo.index));
+			result = 1;
+		} else {
+			Error ("no decl for typeinfo");
+			result = 0;
+		}
+	} else if (expr->type == ExprType (string)) {
+		char	unescaped[4 * 1024];
+		usize	size;
+
+		if (unescape_string (expr->string.token, unescaped, sizeof unescaped, &size)) {
+			write_string (buffer->wr, "\"");
+			write_string_n (buffer->wr, unescaped, size);
+			write_string (buffer->wr, "\"");
+			result = 1;
+		} else {
+			Error ("string too long");
+			result = 0;
+		}
+	} else if (expr->type == ExprType (enum)) {
+		struct decl	*decl;
+		struct unit	*decl_unit;
+
+		if (expr->enumt.lib_index) {
+			decl_unit = get_lib (expr->enumt.lib_index);
+		} else {
+			decl_unit = unit;
+		}
+		decl = get_decl (decl_unit, expr->enumt.enum_decl);
+		result = write_string (buffer->wr, get_enum_name (decl_unit->flags[Flag (unit_index)], decl->name, get_decl (decl_unit, expr->enumt.decl)->name));
+	} else if (expr->type == ExprType (table)) {
+		struct decl	*decl;
+		struct unit	*decl_unit;
+
+		if (expr->enumt.lib_index) {
+			decl_unit = get_lib (expr->enumt.lib_index);
+		} else {
+			decl_unit = unit;
+		}
+		decl = get_decl (decl_unit, expr->enumt.enum_decl);
+		result = write_string (buffer->wr, get_enum_table_name (decl_unit->flags[Flag (unit_index)], decl->name, get_decl (decl_unit, expr->enumt.decl)->name));
+	} else if (expr->type == ExprType (macrocall)) {
+		struct decl	*decl;
+
+		decl = get_decl (unit, expr->macrocall.instance);
+		Assert (decl->kind == DeclKind (define) && decl->define.kind == DefineKind (macro));
+		result = cbackend_macro_scope (unit, decl->define.macro.scope, buffer);
+	} else {
+		Debug ("expr type %s", g_exprtype[expr->type]);
+		Unreachable ();
 	}
 	return (result);
 }
 
-
-
-
-
-
-
-
-
-
-
-int		c_backend_translate_tag_scope (struct unit *unit, int scope_index, struct cbuffer *buffer) {
+int		cbackend_tag_scope (struct unit *unit, uint scope_index, struct cbuffer *buffer) {
 	int				result;
 	struct scope	*scope;
-	struct decl		*decl;
+	uint			decl_index;
 
+	Assert (scope_index);
 	scope = get_scope (unit, scope_index);
-	Assert (scope);
 	Assert (scope->kind == ScopeKind (tag));
-	if (scope->decl_begin >= 0) {
-		decl = get_decl (unit, scope->decl_begin);
-		Assert (decl);
-		do {
-			switch (decl->kind) {
-				case DeclKind (var): {
-					write_c_new_line (buffer);
-					result = c_backend_translate_type (unit, decl->type, decl->name, buffer);
-					write_string (buffer->wr, ";");
-				} break ;
-				case DeclKind (block): {
-					Unreachable ();
-				} break ;
-				case DeclKind (enum): {
-					struct type	*type;
+	decl_index = scope->decl_begin;
+	result = 1;
+	while (result && decl_index) {
+		struct decl		*decl;
 
-					Assert (scope->tagtype == TagType (enum));
-					Assert (scope->type_index >= 0);
-					type = get_type (unit, scope->type_index);
-					Assert (type->kind == TypeKind (tag));
-					Assert (type->tag.type == TagType (enum));
-					write_c_new_line (buffer);
-					c_backend_translate_enum_name (type->tag.name, decl->name, buffer);
-					if (decl->enumt.expr >= 0) {
-						write_string (buffer->wr, " = ");
-						result = c_backend_translate_expr (unit, decl->enumt.expr, buffer);
-					} else {
-						result = 1;
-					}
-					write_string (buffer->wr, ",");
-				} break ;
-				default: Unreachable ();
+		decl = get_decl (unit, decl_index);
+		if (decl->kind == DeclKind (var)) {
+			write_c_new_line (buffer);
+			result = cbackend_type (unit, decl->type, get_local_decl_name (decl->name), 0, buffer);
+			write_string (buffer->wr, ";");
+		} else if (decl->kind == DeclKind (block)) {
+			write_c_new_line (buffer);
+			write_format (buffer->wr, "%s {", g_tagname[get_scope (unit, decl->block.scope)->tagtype]);
+			write_c_indent_up (buffer);
+			result = cbackend_tag_scope (unit, decl->block.scope, buffer);
+			write_c_indent_down (buffer);
+			write_c_new_line (buffer);
+			if (decl->name) {
+				write_format (buffer->wr, "} %s;", get_local_decl_name (decl->name));
+			} else {
+				write_string (buffer->wr, "};");
 			}
-			decl = decl->next >= 0 ? get_decl (unit, decl->next) : 0;
-		} while (result && decl);
-	} else {
-		result = 1;
+		} else if (decl->kind == DeclKind (enum)) {
+			struct type	*type;
+
+			Assert (scope->tagtype == TagType (enum));
+			Assert (scope->type_index);
+			type = get_type (unit, scope->type_index);
+			Assert (type->kind == TypeKind (tag));
+			Assert (type->tag.type == TagType (enum));
+			write_c_new_line (buffer);
+			write_string (buffer->wr, get_enum_name (unit->flags[Flag (unit_index)], type->tag.name, decl->name));
+			if (decl->enumt.expr) {
+				write_string (buffer->wr, " = ");
+				result = cbackend_expr (unit, decl->enumt.expr, buffer);
+			} else {
+				result = 1;
+			}
+			write_string (buffer->wr, ",");
+		}
+		decl_index = decl->next;
 	}
 	return (result);
 }
 
-int		c_backend_translate_tag_decl (struct unit *unit, int decl_index, struct cbuffer *buffer) {
+int		cbackend_tag_decl (struct unit *unit, uint decl_index, struct cbuffer *buffer) {
 	int			result;
 	struct decl *decl;
 
 	decl = get_decl (unit, decl_index);
 	Assert (decl->kind == DeclKind (tag));
-	write_c_new_line (buffer);
-	c_backend_translate_tag_name (decl->tag.type, decl->name, buffer);
-	write_string (buffer->wr, " {");
-	write_c_indent_up (buffer);
-	result = c_backend_translate_tag_scope (unit, decl->tag.scope, buffer);
-	write_c_indent_down (buffer);
-	write_c_new_line (buffer);
-	write_string (buffer->wr, "};");
+	if (!decl->tag.is_external) {
+		write_c_new_line (buffer);
+		write_string (buffer->wr, get_tag_name (unit->flags[Flag (unit_index)], decl->tag.type, decl->name));
+		write_string (buffer->wr, " {");
+		write_c_indent_up (buffer);
+		result = cbackend_tag_scope (unit, decl->tag.scope, buffer);
+		write_c_indent_down (buffer);
+		write_c_new_line (buffer);
+		write_string (buffer->wr, "};");
+	}
 	return (result);
 }
 
-int		c_backend_translate_decl (struct unit *unit, int decl_index, struct cbuffer *buffer);
+int		cbackend_decl (struct unit *unit, uint decl_index, struct cbuffer *buffer);
 
-int		c_backend_translate_code_flow (struct unit *unit, int scope_index, int flow_index, struct cbuffer *buffer) {
+int		cbackend_code_flow (struct unit *unit, uint scope_index, uint flow_index, struct cbuffer *buffer) {
 	int			result;
 	struct flow	*flow;
 
 	flow = get_flow (unit, flow_index);
-	switch (flow->type) {
-		case FlowType (decl): {
-			write_c_new_line (buffer);
-			if (c_backend_translate_decl (unit, flow->decl.index, buffer)) {
-				write_string (buffer->wr, ";");
-				result = 1;
-			} else {
-				result = 0;
-			}
-		} break ;
-		case FlowType (expr): {
-			if (buffer->is_flow_stack) {
-				write_string (buffer->wr, " ");
-			} else {
-				write_c_new_line (buffer);
-			}
-			if (scope_index >= 0) {
-				struct scope	*scope;
-
-				scope = get_scope (unit, scope_index);
-				if (scope->kind == ScopeKind (func) && flow->next < 0 && is_functype_returnable (unit, scope->type_index)) {
-					write_string (buffer->wr, "return ");
-				}
-			}
-			result = c_backend_translate_expr (unit, flow->expr.index, buffer);
+	if (flow->type == FlowType (decl)) {
+		if (cbackend_decl (unit, flow->decl.index, buffer)) {
 			write_string (buffer->wr, ";");
-		} break ;
-		case FlowType (block): {
-			if (buffer->is_flow_stack) {
-				write_string (buffer->wr, " {");
-			} else {
-				write_c_new_line (buffer);
-				write_string (buffer->wr, "{");
-			}
-			buffer->is_flow_stack = 0;
-			write_c_indent_up (buffer);
-			result = c_backend_translate_code_scope (unit, flow->block.scope, buffer);
-			write_c_indent_down (buffer);
-			write_c_new_line (buffer);
-			write_string (buffer->wr, "}");
 			result = 1;
-		} break ;
-		case FlowType (if): {
-			if (buffer->is_flow_stack) {
-				write_string (buffer->wr, " if (");
-			} else {
-				write_c_new_line (buffer);
-				write_string (buffer->wr, "if (");
-			}
-			if (c_backend_translate_expr (unit, flow->fif.expr, buffer)) {
-				write_string (buffer->wr, ")");
-				buffer->is_flow_stack = 1;
-				if (c_backend_translate_code_flow (unit, -1, flow->fif.flow_body, buffer)) {
-					if (flow->fif.else_body >= 0) {
-						write_c_new_line (buffer);
-						write_string (buffer->wr, "else");
-						buffer->is_flow_stack = 1;
-						result = c_backend_translate_code_flow (unit, -1, flow->fif.else_body, buffer);
-					} else {
-						result = 1;
-					}
-					buffer->is_flow_stack = 0;
-				} else {
-					result = 0;
-				}
-			} else {
-				result = 0;
-			}
-		} break ;
-		case FlowType (while): {
-			if (buffer->is_flow_stack) {
-				write_string (buffer->wr, " while (");
-			} else {
-				write_c_new_line (buffer);
-				write_string (buffer->wr, "while (");
-			}
-			if (c_backend_translate_expr (unit, flow->fwhile.expr, buffer)) {
-				write_string (buffer->wr, ")");
-				buffer->is_flow_stack = 1;
-				result = c_backend_translate_code_flow (unit, -1, flow->fwhile.flow_body, buffer);
-				buffer->is_flow_stack = 0;
-			} else {
-				result = 0;
-			}
-		} break ;
-		case FlowType (dowhile): {
-			if (buffer->is_flow_stack) {
-				write_string (buffer->wr, " do");
-			} else {
-				write_c_new_line (buffer);
-				write_string (buffer->wr, "do");
-			}
+		} else {
+			result = 0;
+		}
+	} else if (flow->type == FlowType (expr)) {
+		if (buffer->is_flow_stack) {
+			write_string (buffer->wr, " ");
+		} else {
+			write_c_new_line (buffer);
+		}
+		result = cbackend_expr (unit, flow->expr.index, buffer);
+		write_string (buffer->wr, ";");
+	} else if (flow->type == FlowType (block)) {
+		if (buffer->is_flow_stack) {
+			write_string (buffer->wr, " {");
+		} else {
+			write_c_new_line (buffer);
+			write_string (buffer->wr, "{");
+		}
+		buffer->is_flow_stack = 0;
+		write_c_indent_up (buffer);
+		result = cbackend_code_scope (unit, flow->block.scope, buffer);
+		write_c_indent_down (buffer);
+		write_c_new_line (buffer);
+		write_string (buffer->wr, "}");
+		result = 1;
+	} else if (flow->type == FlowType (if)) {
+		if (buffer->is_flow_stack) {
+			write_string (buffer->wr, " if (");
+		} else {
+			write_c_new_line (buffer);
+			write_string (buffer->wr, "if (");
+		}
+		if (cbackend_expr (unit, flow->fif.expr, buffer)) {
+			write_string (buffer->wr, ")");
 			buffer->is_flow_stack = 1;
-			if (c_backend_translate_code_flow (unit, -1, flow->fwhile.flow_body, buffer)) {
-				write_c_new_line (buffer);
-				write_string (buffer->wr, "while (");
-				result = c_backend_translate_expr (unit, flow->fwhile.expr, buffer);
-				write_string (buffer->wr, ");");
+			if (cbackend_code_flow (unit, 0, flow->fif.flow_body, buffer)) {
+				if (flow->fif.else_body) {
+					write_c_new_line (buffer);
+					write_string (buffer->wr, "else");
+					buffer->is_flow_stack = 1;
+					result = cbackend_code_flow (unit, 0, flow->fif.else_body, buffer);
+				} else {
+					result = 1;
+				}
 				buffer->is_flow_stack = 0;
 			} else {
 				result = 0;
 			}
-		} break ;
-		default: Unreachable ();
+		} else {
+			result = 0;
+		}
+	} else if (flow->type == FlowType (while)) {
+		if (buffer->is_flow_stack) {
+			write_string (buffer->wr, " while (");
+		} else {
+			write_c_new_line (buffer);
+			write_string (buffer->wr, "while (");
+		}
+		if (cbackend_expr (unit, flow->fwhile.expr, buffer)) {
+			write_string (buffer->wr, ")");
+			buffer->is_flow_stack = 1;
+			result = cbackend_code_flow (unit, 0, flow->fwhile.flow_body, buffer);
+			buffer->is_flow_stack = 0;
+		} else {
+			result = 0;
+		}
+	} else if (flow->type == FlowType (dowhile)) {
+		if (buffer->is_flow_stack) {
+			write_string (buffer->wr, " do");
+		} else {
+			write_c_new_line (buffer);
+			write_string (buffer->wr, "do");
+		}
+		buffer->is_flow_stack = 1;
+		if (cbackend_code_flow (unit, 0, flow->fwhile.flow_body, buffer)) {
+			write_c_new_line (buffer);
+			write_string (buffer->wr, "while (");
+			result = cbackend_expr (unit, flow->fwhile.expr, buffer);
+			write_string (buffer->wr, ");");
+			buffer->is_flow_stack = 0;
+		} else {
+			result = 0;
+		}
+	} else {
+		Unreachable ();
 	}
 	return (result);
 }
 
-int		c_backend_translate_code_scope (struct unit *unit, int scope_index, struct cbuffer *buffer) {
-	int		result;
+int		cbackend_code_scope (struct unit *unit, uint scope_index, struct cbuffer *buffer) {
+	int				result;
 	struct scope	*scope;
+	uint			flow_index;
 
 	scope = get_scope (unit, scope_index);
-	if (scope->flow_begin >= 0) {
-		struct flow	*flow;
-
-		flow = get_flow (unit, scope->flow_begin);
-		do {
-			result = c_backend_translate_code_flow (unit, scope_index, get_flow_index (unit, flow), buffer);
-			flow = flow->next >= 0 ? get_flow (unit, flow->next) : 0;
-		} while (result && flow);
+	flow_index = scope->flow_begin;
+	result = 1;
+	while (result && flow_index) {
+		result = cbackend_code_flow (unit, scope_index, flow_index, buffer);
+		flow_index = get_flow (unit, flow_index)->next;
+	}
+	if (result && scope->kind == ScopeKind (func) && is_functype_returnable (unit, scope->type_index)) {
+		write_c_new_line (buffer);
+		write_format (buffer->wr, "return (%s);", get_local_decl_name ("result"));
 	}
 	return (result);
 }
 
-int		c_backend_translate_macro_flow (struct unit *unit, int scope_index, int flow_index, struct cbuffer *buffer) {
+int		cbackend_macro_flow (struct unit *unit, uint scope_index, uint flow_index, struct cbuffer *buffer) {
 	int		result;
 	struct flow	*flow;
 
 	flow = get_flow (unit, flow_index);
-	switch (flow->type) {
-		case FlowType (if): {
-			write_string (buffer->wr, "(");
-			if (c_backend_translate_expr (unit, flow->fif.expr, buffer)) {
-				write_string (buffer->wr, ") ? (");
-				if (c_backend_translate_macro_flow (unit, scope_index, flow->fif.flow_body, buffer)) {
-					write_string (buffer->wr, ") : (");
-					if (c_backend_translate_macro_flow (unit, scope_index, flow->fif.else_body, buffer)) {
-						write_string (buffer->wr, ")");
-						result = 1;
-					}
+	if (flow->type == FlowType (if)) {
+		write_string (buffer->wr, "(");
+		if (cbackend_expr (unit, flow->fif.expr, buffer)) {
+			write_string (buffer->wr, ") ? (");
+			if (cbackend_macro_flow (unit, scope_index, flow->fif.flow_body, buffer)) {
+				write_string (buffer->wr, ") : (");
+				if (cbackend_macro_flow (unit, scope_index, flow->fif.else_body, buffer)) {
+					write_string (buffer->wr, ")");
+					result = 1;
 				} else {
 					result = 0;
 				}
 			} else {
 				result = 0;
 			}
-		} break ;
-		case FlowType (block): {
-			write_string (buffer->wr, "(");
-			result = c_backend_translate_macro_scope (unit, flow->block.scope, buffer);
-			write_string (buffer->wr, ")");
-		} break ;
-		case FlowType (expr): {
-			result = c_backend_translate_expr (unit, flow->expr.index, buffer);
-		} break ;
-		default: Unreachable ();
+		} else {
+			result = 0;
+		}
+	} else if (flow->type == FlowType (block)) {
+		write_string (buffer->wr, "(");
+		result = cbackend_macro_scope (unit, flow->block.scope, buffer);
+		write_string (buffer->wr, ")");
+	} else if (flow->type == FlowType (expr)) {
+		result = cbackend_expr (unit, flow->expr.index, buffer);
+	} else {
+		Unreachable ();
 	}
-	if (result && flow->next >= 0) {
+	if (result && flow->next) {
 		write_string (buffer->wr, ", ");
 	}
 	return (result);
 }
 
-int		c_backend_translate_macro_scope (struct unit *unit, int scope_index, struct cbuffer *buffer) {
+int		cbackend_macro_scope (struct unit *unit, uint scope_index, struct cbuffer *buffer) {
 	int				result;
 	struct scope	*scope;
+	uint			flow_index;
 
 	scope = get_scope (unit, scope_index);
-	if (scope->flow_begin >= 0) {
-		struct flow	*flow;
-
-		flow = get_flow (unit, scope->flow_begin);
-		do {
-			result = c_backend_translate_macro_flow (unit, scope_index, get_flow_index (unit, flow), buffer);
-			flow = flow->next >= 0 ? get_flow (unit, flow->next) : 0;
-		} while (result && flow);
+	flow_index = scope->flow_begin;
+	result = 1;
+	while (result && flow_index) {
+		result = cbackend_macro_flow (unit, scope_index, flow_index, buffer);
+		flow_index = get_flow (unit, flow_index)->next;
 	}
 	return (result);
 }
 
-int		c_backend_translate_func_prototype (struct unit *unit, int decl_index, struct cbuffer *buffer) {
-	int		result;
+int		cbackend_func_prototype (struct unit *unit, uint decl_index, struct cbuffer *buffer) {
+	int			result;
 	struct decl	*decl;
+	const char	*name;
 
 	decl = get_decl (unit, decl_index);
 	Assert (decl->kind == DeclKind (func));
 	write_c_new_line (buffer);
-	if (c_backend_translate_type (unit, decl->type, decl->name, buffer)) {
+	if (decl->func.visability == Visability (private)) {
+		if (0 != strcmp ("main", decl->name)) {
+			write_string (buffer->wr, "static ");
+			name = get_global_decl_name (unit->flags[Flag (unit_index)], decl->name);
+		} else {
+			name = decl->name;
+		}
+	} else {
+		name = decl->name;
+	}
+	if (cbackend_type (unit, decl->type, name, decl->func.prefix, buffer)) {
 		write_string (buffer->wr, ";");
 		result = 1;
 	} else {
@@ -609,155 +653,352 @@ int		c_backend_translate_func_prototype (struct unit *unit, int decl_index, stru
 	return (result);
 }
 
-int		c_backend_translate_decl (struct unit *unit, int decl_index, struct cbuffer *buffer) {
-	int		result;
+int		cbackend_var_prototype (struct unit *unit, uint decl_index, struct cbuffer *buffer) {
+	int			result;
 	struct decl	*decl;
+	const char	*name;
 
 	decl = get_decl (unit, decl_index);
-	switch (decl->kind) {
-		case DeclKind (var): {
-			result = c_backend_translate_type (unit, decl->type, decl->name, buffer);
-		} break ;
-		case DeclKind (func): {
-			write_c_new_line (buffer);
-			if (c_backend_translate_type (unit, decl->type, decl->name, buffer)) {
-				write_string (buffer->wr, " {");
-				write_c_indent_up (buffer);
-				result = c_backend_translate_code_scope (unit, decl->func.scope, buffer);
-				write_c_indent_down (buffer);
-				write_c_new_line (buffer);
-				write_string (buffer->wr, "}");
-			} else {
-				result = 0;
-			}
-		} break ;
-		case DeclKind (tag): {
-			result = c_backend_translate_tag_decl (unit, decl_index, buffer);
-		} break ;
-		case DeclKind (block): {
-			Todo ();
-		} break ;
-		case DeclKind (accessor): {
-		} break ;
-		case DeclKind (const): {
-			write_c_new_line (buffer);
-			write_string (buffer->wr, "#define ");
-			c_backend_translate_const_name (decl->name, buffer);
-			write_string (buffer->wr, " (");
-			if (c_backend_translate_expr (unit, decl->dconst.expr, buffer)) {
-				write_string (buffer->wr, ")");
-				result = 1;
-			} else {
-				result = 0;
-			}
-		} break ;
-		case DeclKind (macro): {
-			struct scope	*scope;
-
-			write_c_new_line (buffer);
-			write_string (buffer->wr, "#define ");
-			c_backend_translate_macro_name (decl->name, buffer);
-			write_string (buffer->wr, "(");
-			scope = get_scope (unit, decl->macro.param_scope);
-			if (scope->decl_begin >= 0) {
-				struct decl	*param;
-
-				param = get_decl (unit, scope->decl_begin);
-				do {
-					if (param->next >= 0) {
-						write_format (buffer->wr, "%s, ", param->name);
-						param = get_decl (unit, param->next);
-					} else {
-						write_string (buffer->wr, param->name);
-						param = 0;
-					}
-				} while (param);
-			}
-			write_string (buffer->wr, ") (");
-			result = c_backend_translate_macro_scope (unit, decl->macro.scope, buffer);
-			write_string (buffer->wr, ")");
-		} break ;
-		case DeclKind (external): {
-			write_c_new_line (buffer);
-			write_string (buffer->wr, "extern ");
-			result = c_backend_translate_type (unit, decl->type, decl->name, buffer);
-			write_string (buffer->wr, ";");
-		} break ;
-		case DeclKind (enum):
-		default: Unreachable ();
+	Assert (decl->kind == DeclKind (var));
+	write_c_new_line (buffer);
+	if (decl->var.visability == Visability (private)) {
+		if (0 != strcmp ("main", decl->name)) {
+			write_string (buffer->wr, "static ");
+			name = get_global_decl_name (unit->flags[Flag (unit_index)], decl->name);
+		} else {
+			name = decl->name;
+		}
+	} else {
+		name = decl->name;
+	}
+	if (cbackend_type (unit, decl->type, name, 0, buffer)) {
+		write_string (buffer->wr, ";");
+		result = 1;
+	} else {
+		result = 0;
 	}
 	return (result);
 }
 
-int		c_backend_translate_typeinfo (struct unit *unit, struct cbuffer *buffer) {
+uint	get_param_by_index (struct unit *unit, uint params, int index) {
 	int		result;
 
-	write_c_new_line (buffer);
-	c_backend_translate_tag_name (TagType (struct), "typeinfo", buffer);
-	write_string (buffer->wr, " const g_typeinfos[];");
-	if (Get_Array_Count (unit->typemembers) > 0) {
-		int		index;
+	while (params && index > 0) {
+		struct expr	*expr;
+
+		expr = get_expr (unit, params);
+		Assert (expr->type == ExprType (funcparam));
+		params = expr->funcparam.next;
+		index -= 1;
+	}
+	if (params) {
+		result = get_expr (unit, params)->funcparam.expr;
+	} else {
+		result = 0;
+	}
+	return (result);
+}
+
+int		cbackend_enum_table (struct unit *unit, uint enum_decl_index, int is_prototype, struct cbuffer *buffer) {
+	int				result;
+	struct scope	*scope;
+	uint			decl_index;
+	struct decl		*enum_decl;
+	uint			param_index;
+	uint			count_expr_index;
+
+	enum_decl = get_decl (unit, enum_decl_index);
+	Assert (enum_decl->kind == DeclKind (tag) && enum_decl->tag.type == TagType (enum));
+	Assert (enum_decl->tag.param_scope);
+	scope = get_scope (unit, enum_decl->tag.param_scope);
+	Assert (scope->decl_begin);
+	decl_index = scope->decl_begin;
+	count_expr_index = make_expr_usize_constant (unit, count_decls_in_scope (unit, enum_decl->tag.scope));
+	param_index = 0;
+	result = 1;
+	while (result && decl_index) {
+		struct decl	*decl;
+		uint		array_type_index;
+
+		decl = get_decl (unit, decl_index);
+		write_c_new_line (buffer);
+		write_string (buffer->wr, "static ");
+		array_type_index = make_array_type (unit, decl->type, count_expr_index);
+		if (cbackend_type (unit, array_type_index, get_enum_table_name (unit->flags[Flag (unit_index)], enum_decl->name, decl->name), 0, buffer)) {
+			if (is_prototype) {
+				write_string (buffer->wr, ";");
+				result = 1;
+			} else {
+				struct scope	*enum_scope;
+				uint			decl_index;
+
+				write_string (buffer->wr, " = {");
+				write_c_indent_up (buffer);
+				enum_scope = get_scope (unit, enum_decl->tag.scope);
+				Assert (enum_scope->decl_begin);
+				decl_index = enum_scope->decl_begin;
+				do {
+					struct decl	*decl;
+					uint		expr_index;
+
+					decl = get_decl (unit, decl_index);
+					Assert (decl->kind == DeclKind (enum));
+					write_c_new_line (buffer);
+					expr_index = get_param_by_index (unit, decl->enumt.params, param_index);
+					Assert (expr_index);
+					if (cbackend_expr (unit, expr_index, buffer)) {
+						write_string (buffer->wr, ",");
+						result = 1;
+					} else {
+						result = 0;
+					}
+					decl_index = decl->next;
+				} while (result && decl_index);
+				if (result) {
+					write_c_indent_down (buffer);
+					write_c_new_line (buffer);
+					write_string (buffer->wr, "};");
+				}
+			}
+		} else {
+			result = 0;
+		}
+		param_index += 1;
+		decl_index = decl->next;
+	}
+	if (result) {
+		uint	array_type_index;
 
 		write_c_new_line (buffer);
-		c_backend_translate_tag_name (TagType (struct), "typemember", buffer);
-		write_string (buffer->wr, " const g_typemembers[] = {");
+		write_string (buffer->wr, "static ");
+		array_type_index = make_array_type (unit, make_pointer_type (unit, make_basic_type (unit, BasicType (char), 1), 1), count_expr_index);
+		if (cbackend_type (unit, array_type_index, get_enum_table_name (unit->flags[Flag (unit_index)], enum_decl->name, "name"), 0, buffer)) {
+			if (is_prototype) {
+				write_string (buffer->wr, ";");
+				result = 1;
+			} else {
+				struct scope	*enum_scope;
+				uint			decl_index;
+
+				write_string (buffer->wr, " = {");
+				write_c_indent_up (buffer);
+				enum_scope = get_scope (unit, enum_decl->tag.scope);
+				Assert (enum_scope->decl_begin);
+				decl_index = enum_scope->decl_begin;
+				do {
+					struct decl	*decl;
+
+					decl = get_decl (unit, decl_index);
+					Assert (decl->kind == DeclKind (enum));
+					write_c_new_line (buffer);
+					write_format (buffer->wr, "\"%s\",", decl->name);
+					result = 1;
+					decl_index = decl->next;
+				} while (result && decl_index);
+				if (result) {
+					write_c_indent_down (buffer);
+					write_c_new_line (buffer);
+					write_string (buffer->wr, "};");
+				}
+			}
+		} else {
+			result = 0;
+		}
+	}
+	return (result);
+}
+
+int		cbackend_init_scope (struct unit *unit, uint scope_index, struct cbuffer *buffer);
+
+int		cbackend_init_scope_flow (struct unit *unit, uint flow_index, struct cbuffer *buffer) {
+	int			result;
+	struct flow	*flow;
+
+	flow = get_flow (unit, flow_index);
+	write_c_new_line (buffer);
+	if (flow->init.type == InitType (struct) || flow->init.type == InitType (array)) {
+		write_string (buffer->wr, "{");
 		write_c_indent_up (buffer);
-		index = 0;
-		while (index < Get_Array_Count (unit->typemembers)) {
+		result = cbackend_init_scope (unit, flow->init.body, buffer);
+		write_c_indent_down (buffer);
+		write_c_new_line (buffer);
+		write_string (buffer->wr, "},");
+	} else {
+		Assert (flow->init.type == InitType (expr));
+		result = cbackend_expr (unit, flow->init.body, buffer);
+		write_string (buffer->wr, ",");
+	}
+	return (result);
+}
+
+int		cbackend_init_scope (struct unit *unit, uint scope_index, struct cbuffer *buffer) {
+	int				result;
+	struct scope	*scope;
+	uint			flow_index;
+
+	scope = get_scope (unit, scope_index);
+	flow_index = scope->flow_begin;
+	result = 1;
+	while (result && flow_index) {
+		result = cbackend_init_scope_flow (unit, flow_index, buffer);
+		flow_index = get_flow (unit, flow_index)->next;
+	}
+	return (result);
+}
+
+int		cbackend_decl (struct unit *unit, uint decl_index, struct cbuffer *buffer) {
+	int			result;
+	struct decl	*decl;
+
+	decl = get_decl (unit, decl_index);
+	if (decl->kind == DeclKind (var)) {
+		const char	*name;
+
+		write_c_new_line (buffer);
+		if (decl->is_global) {
+			if (decl->var.visability == Visability (private)) {
+				write_string (buffer->wr, "static ");
+				name = get_global_decl_name (unit->flags[Flag (unit_index)], decl->name);
+			} else {
+				name = decl->name;
+			}
+		} else {
+			name = get_local_decl_name (decl->name);
+		}
+		if (cbackend_type (unit, decl->type, name, 0, buffer)) {
+			if (decl->var.init_scope) {
+				write_string (buffer->wr, " = {");
+				write_c_indent_up (buffer);
+				result = cbackend_init_scope (unit, decl->var.init_scope, buffer);
+				write_c_indent_down (buffer);
+				write_c_new_line (buffer);
+				write_string (buffer->wr, "}");
+			} else {
+				result = 1;
+			}
+		} else {
+			result = 0;
+		}
+	} else if (decl->kind == DeclKind (alias)) {
+		result = 1;
+	} else if (decl->kind == DeclKind (func)) {
+		const char	*name;
+
+		write_c_new_line (buffer);
+		if (decl->func.visability == Visability (private)) {
+			if (0 != strcmp ("main", decl->name)) {
+				write_string (buffer->wr, "static ");
+				name = get_global_decl_name (unit->flags[Flag (unit_index)], decl->name);
+			} else {
+				name = decl->name;
+			}
+		} else {
+			name = decl->name;
+		}
+		if (cbackend_type (unit, decl->type, name, decl->func.prefix, buffer)) {
+			write_string (buffer->wr, " {");
+			write_c_indent_up (buffer);
+			result = cbackend_code_scope (unit, decl->func.scope, buffer);
+			write_c_indent_down (buffer);
+			write_c_new_line (buffer);
+			write_string (buffer->wr, "}");
+		} else {
+			result = 0;
+		}
+	} else if (decl->kind == DeclKind (tag)) {
+		result = cbackend_tag_decl (unit, decl_index, buffer);
+	} else if (decl->kind == DeclKind (block)) {
+		Todo ();
+	} else if (decl->kind == DeclKind (define)) {
+		if (decl->define.kind == DefineKind (external)) {
+			write_c_new_line (buffer);
+			write_string (buffer->wr, "extern ");
+			result = cbackend_type (unit, decl->type, decl->name, 0, buffer);
+			write_string (buffer->wr, ";");
+		} else {
+			result = 1;
+		}
+	} else if (decl->kind == DeclKind (const)) {
+		result = 1;
+	} else {
+		Unreachable ();
+	}
+	return (result);
+}
+
+int		cbackend_typeinfo (struct unit *unit, struct cbuffer *buffer) {
+	int		result;
+	uint	typeinfo_index;
+	uint	typemember_index;
+	int		unit_index;
+	int		tag_unit_index;
+
+	tag_unit_index = get_lib (get_lib_index (g_typeinfo_struct_decl))->flags[Flag (unit_index)];
+	unit_index = unit->flags[Flag (unit_index)];
+	typeinfo_index = Get_Bucket_First_Index (unit->typeinfos);
+	typemember_index = Get_Bucket_First_Index (unit->typemembers);
+	if (typeinfo_index) {
+		write_c_new_line (buffer);
+		write_string (buffer->wr, "static ");
+		write_string (buffer->wr, get_tag_name (tag_unit_index, TagType (struct), "typeinfo"));
+		write_format (buffer->wr, " const %s[%zu];", get_global_decl_name (unit_index, "typeinfos__"), Get_Bucket_Count (unit->typeinfos));
+	}
+	if (typemember_index) {
+		write_c_new_line (buffer);
+		write_string (buffer->wr, "static ");
+		write_string (buffer->wr, get_tag_name (tag_unit_index, TagType (struct), "typemember"));
+		write_format (buffer->wr, " const %s[%zu] = {", get_global_decl_name (unit_index, "typemembers__"), Get_Bucket_Count (unit->typemembers));
+		write_c_indent_up (buffer);
+		do {
 			struct typemember	*member;
 
-			member = unit->typemembers + index;
+			member = Get_Bucket_Element (unit->typemembers, typemember_index);
 			write_c_new_line (buffer);
-			if (member->name == 0) {
-				write_string (buffer->wr, "{ 0, 0, 0, 0 },");
-			} else if (member->typeinfo >= 0) {
-				write_format (buffer->wr, "{ \"%s\", g_typeinfos + %d, %d, %d },", member->name, member->typeinfo, member->value, member->offset);
+			if (member->name == 0 && member->typeinfo) {
+				// write_format (buffer->wr, "{ 0, 0, g_typemembers + %d, 0, 0 },", member->typeinfo);
+				write_format (buffer->wr, "{ 0, %s + %d, 0, 0, 0 },", get_global_decl_name (unit_index, "typeinfos__"), Get_Bucket_OrdIndex (unit->typeinfos, member->typeinfo));
+			} else if (member->name == 0) {
+				write_string (buffer->wr, "{ 0, 0, 0, 0, 0 },");
+			} else if (member->typeinfo) {
+				write_format (buffer->wr, "{ \"%s\", %s + %d, 0, %d, %d },", member->name, get_global_decl_name (unit_index, "typeinfos__"), Get_Bucket_OrdIndex (unit->typeinfos, member->typeinfo), member->value, member->offset);
 			} else {
-				write_format (buffer->wr, "{ \"%s\", 0, %d, %d },", member->name, member->value, member->offset);
+				write_format (buffer->wr, "{ \"%s\", 0, 0, %d, %d },", member->name, member->value, member->offset);
 			}
-			index += 1;
-		}
+			typemember_index = Get_Next_Bucket_Index (unit->typemembers, typemember_index);
+		} while (typemember_index);
 		write_c_indent_down (buffer);
 		write_c_new_line (buffer);
 		write_string (buffer->wr, "};");
 	}
-	if (Get_Array_Count (unit->typeinfos) > 0) {
-		int		index;
-
+	if (typeinfo_index) {
 		write_c_new_line (buffer);
-		c_backend_translate_tag_name (TagType (struct), "typeinfo", buffer);
-		write_string (buffer->wr, " const g_typeinfos[] = {");
+		write_string (buffer->wr, "static ");
+		write_string (buffer->wr, get_tag_name (tag_unit_index, TagType (struct), "typeinfo"));
+		write_format (buffer->wr, " const %s[%zu] = {", get_global_decl_name (unit_index, "typeinfos__"),Get_Bucket_Count (unit->typeinfos));
 		write_c_indent_up (buffer);
-		index = 0;
-		while (index < Get_Array_Count (unit->typeinfos)) {
+		do {
 			struct typeinfo	*typeinfo;
 
-			typeinfo = unit->typeinfos + index;
+			typeinfo = Get_Bucket_Element (unit->typeinfos, typeinfo_index);
 			write_c_new_line (buffer);
-			write_format (buffer->wr, "{ %zu, %d, %d, ", typeinfo->size, typeinfo->count, typeinfo->kind);
-			switch (typeinfo->kind) {
-				case TypeInfo_Kind (basic): {
-					write_format (buffer->wr, "%d, 0, 0, 0 },", typeinfo->basic);
-				} break ;
-				case TypeInfo_Kind (struct):
-				case TypeInfo_Kind (enum):
-				case TypeInfo_Kind (union): {
-					write_format (buffer->wr, "0, \"%s\", 0, g_typemembers + %d },", typeinfo->tagname, typeinfo->members);
-				} break ;
-				case TypeInfo_Kind (pointer):
-				case TypeInfo_Kind (array): {
-					write_format (buffer->wr, "0, 0, g_typeinfos + %d, 0 },", typeinfo->typeinfo);
-				} break ;
-				case TypeInfo_Kind (function): {
-					if (typeinfo->members >= 0) {
-						write_format (buffer->wr, "0, 0, g_typeinfos + %d, g_typemembers + %d },", typeinfo->typeinfo, typeinfo->members);
-					} else {
-						write_format (buffer->wr, "0, 0, g_typeinfos + %d, 0 },", typeinfo->typeinfo);
-					}
-				} break ;
+			write_format (buffer->wr, "{ %zu, %d, %d, %d, ", typeinfo->size, typeinfo->count, typeinfo->qualifiers, typeinfo->kind);
+			if (typeinfo->kind == TypeInfo_Kind (basic)) {
+				write_format (buffer->wr, "%d, 0, 0, 0 },", typeinfo->basic);
+			} else if (typeinfo->kind == TypeInfo_Kind (struct) || typeinfo->kind == TypeInfo_Kind (enum) || typeinfo->kind == TypeInfo_Kind (union)) {
+				write_format (buffer->wr, "0, \"%s\", 0, %s + %d },", typeinfo->tagname, get_global_decl_name (unit_index, "typemembers__"), Get_Bucket_OrdIndex (unit->typemembers, typeinfo->members));
+			} else if (typeinfo->kind == TypeInfo_Kind (pointer) || typeinfo->kind == TypeInfo_Kind (array)) {
+				write_format (buffer->wr, "0, 0, %s + %d, 0 },", get_global_decl_name (unit_index, "typeinfos__"), Get_Bucket_OrdIndex (unit->typeinfos, typeinfo->typeinfo));
+			} else if (typeinfo->kind == TypeInfo_Kind (function)) {
+				if (typeinfo->members) {
+					write_format (buffer->wr, "0, 0, %s + %d, %s + %d },", get_global_decl_name (unit_index, "typeinfos__"), Get_Bucket_OrdIndex (unit->typeinfos, typeinfo->typeinfo), get_global_decl_name (unit_index, "typemembers__"),Get_Bucket_OrdIndex (unit->typemembers, typeinfo->members));
+				} else {
+					write_format (buffer->wr, "0, 0, %s + %d, 0 },", get_global_decl_name (unit_index, "typeinfos__"), Get_Bucket_OrdIndex (unit->typeinfos, typeinfo->typeinfo));
+				}
+			} else {
+				Unreachable ();
 			}
-			index += 1;
-		}
+			typeinfo_index = Get_Next_Bucket_Index (unit->typeinfos, typeinfo_index);
+		} while (typeinfo_index);
 		write_c_indent_down (buffer);
 		write_c_new_line (buffer);
 		write_string (buffer->wr, "};");
@@ -766,139 +1007,150 @@ int		c_backend_translate_typeinfo (struct unit *unit, struct cbuffer *buffer) {
 	return (result);
 }
 
-int		c_backend_translate_unit_scope (struct unit *unit, int scope_index, struct cbuffer *buffer) {
-	int		result;
-	struct scope	*scope;
-
-	scope = get_scope (unit, scope_index);
-	if (scope->decl_begin >= 0) {
-		struct decl	*decl;
-
-		decl = get_decl (unit, scope->decl_begin);
-		do {
-			if (decl->kind == DeclKind (macro)) {
-				result = c_backend_translate_decl (unit, get_decl_index (unit, decl), buffer);
-			} else if (decl->kind == DeclKind (const)) {
-				result = c_backend_translate_decl (unit, get_decl_index (unit, decl), buffer);
-			} else {
-				result = 1;
-			}
-			if (decl->next >= 0) {
-				decl = get_decl (unit, decl->next);
-			} else {
-				decl = 0;
-			}
-		} while (result && decl);
-		decl = get_decl (unit, scope->decl_begin);
-		if (result) do {
-			if (decl->kind == DeclKind (tag)) {
-				result = c_backend_translate_decl (unit, get_decl_index (unit, decl), buffer);
-			} else {
-				result = 1;
-			}
-			if (decl->next >= 0) {
-				decl = get_decl (unit, decl->next);
-			} else {
-				decl = 0;
-			}
-		} while (result && decl);
-		decl = get_decl (unit, scope->decl_begin);
-		if (result) do {
-			if (decl->kind == DeclKind (func)) {
-				result = c_backend_translate_func_prototype (unit, get_decl_index (unit, decl), buffer);
-			} else if (decl->kind == DeclKind (external)) {
-				result = c_backend_translate_decl (unit, get_decl_index (unit, decl), buffer);
-			} else {
-				result = 1;
-			}
-			if (decl->next >= 0) {
-				decl = get_decl (unit, decl->next);
-			} else {
-				decl = 0;
-			}
-		} while (result && decl);
-		result = result && c_backend_translate_typeinfo (unit, buffer);
-		decl = get_decl (unit, scope->decl_begin);
-		if (result) do {
-			if (decl->kind == DeclKind (func)) {
-				result = c_backend_translate_decl (unit, get_decl_index (unit, decl), buffer);
-			} else {
-				result = 1;
-			}
-			if (decl->next >= 0) {
-				decl = get_decl (unit, decl->next);
-			} else {
-				decl = 0;
-			}
-		} while (result && decl);
-	} else {
-		result = 1;
-	}
-	return (result);
-}
-
-int		c_backend_translate_func_scope (struct unit *unit, int scope_index, struct cbuffer *buffer) {
-	int		result;
-
-	result = 0;
-	return (result);
-}
-
-int		c_backend_translate_param_scope (struct unit *unit, int scope_index, struct cbuffer *buffer) {
-	int		result;
-	struct scope	*scope;
-
-	scope = get_scope (unit, scope_index);
-	if (scope->decl_begin >= 0) {
-		struct decl	*decl;
-
-		decl = get_decl (unit, scope->decl_begin);
-		do {
-			Assert (decl->kind == DeclKind (param));
-			if (decl->type >= 0) {
-				result = c_backend_translate_type (unit, decl->type, decl->name, buffer);
-			} else if (0 == strcmp (decl->name, "...")) {
-				write_string (buffer->wr, "...");
-			} else {
-				Error ("unexpected param decl");
-				result = 0;
-			}
-			if (decl->next >= 0) {
-				write_string (buffer->wr, ", ");
-			}
-			decl = decl->next >= 0 ? get_decl (unit, decl->next) : 0;
-		} while (result && decl);
-	} else {
-		result = 1;
-	}
-	return (result);
-}
-
-int		c_backend_translate_scope (struct unit *unit, int scope_index, struct cbuffer *buffer) {
+int		cbackend_tags (struct unit *unit, uint scope_index, struct cbuffer *buffer) {
 	int				result;
 	struct scope	*scope;
+	uint			decl_index;
 
 	scope = get_scope (unit, scope_index);
-	switch (scope->kind) {
-		case ScopeKind (unit): result = c_backend_translate_unit_scope (unit, scope_index, buffer); break ;
-		case ScopeKind (func): result = c_backend_translate_func_scope (unit, scope_index, buffer); break ;
-		case ScopeKind (code): result = c_backend_translate_code_scope (unit, scope_index, buffer); break ;
-		case ScopeKind (tag): result = c_backend_translate_tag_scope (unit, scope_index, buffer); break ;
-		case ScopeKind (param): result = c_backend_translate_param_scope (unit, scope_index, buffer); break ;
-		default: Unreachable ();
+	decl_index = scope->decl_begin;
+	result = 1;
+	while (result && decl_index) {
+		struct decl	*decl;
+
+		decl = get_decl (unit, decl_index);
+		if (decl->kind == DeclKind (tag)) {
+			result = cbackend_decl (unit, decl_index, buffer);
+		} else {
+			result = 1;
+		}
+		decl_index = decl->next;
 	}
 	return (result);
 }
 
-int		c_backend_translate_unit (struct unit *unit, struct cbuffer *buffer) {
-	int		result;
+int		cbackend_prototypes (struct unit *unit, uint scope_index, struct cbuffer *buffer) {
+	int				result;
+	uint			decl_index;
 
-	result = c_backend_translate_scope (unit, unit->root_scope, buffer);
+	decl_index = get_scope (unit, scope_index)->decl_begin;
+	result = 1;
+	while (result && decl_index) {
+		struct decl	*decl;
+
+		decl = get_decl (unit, decl_index);
+		if (decl->kind == DeclKind (func)) {
+			result = cbackend_func_prototype (unit, get_decl_index (unit, decl), buffer);
+		} else if (decl->kind == DeclKind (var)) {
+			result = cbackend_var_prototype (unit, get_decl_index (unit, decl), buffer);
+		} else if (decl->kind == DeclKind (tag) && decl->tag.type == TagType (enum) && decl->tag.param_scope) {
+			result = cbackend_enum_table (unit, get_decl_index (unit, decl), 1, buffer);
+		} else {
+			result = 1;
+		}
+		decl_index = decl->next;
+	}
 	return (result);
 }
 
+int		cbackend_definitions (struct unit *unit, uint scope_index, struct cbuffer *buffer) {
+	int				result;
+	uint			decl_index;
 
+	decl_index = get_scope (unit, scope_index)->decl_begin;
+	result = 1;
+	while (result && decl_index) {
+		struct decl	*decl;
 
+		decl = get_decl (unit, decl_index);
+		if (decl->kind == DeclKind (func)) {
+			result = cbackend_decl (unit, get_decl_index (unit, decl), buffer);
+		} else if (decl->kind == DeclKind (var)) {
+			result = cbackend_decl (unit, get_decl_index (unit, decl), buffer);
+			write_string (buffer->wr, ";");
+		} else if (decl->kind == DeclKind (tag) && decl->tag.type == TagType (enum) && decl->tag.param_scope) {
+			result = cbackend_enum_table (unit, get_decl_index (unit, decl), 0, buffer);
+		} else {
+			result = 1;
+		}
+		decl_index = decl->next;
+	}
+	return (result);
+}
 
+int		cbackend_unit_scope (struct unit *unit, uint scope_index, struct cbuffer *buffer) {
+	int				result;
+
+	if (cbackend_tags (unit, scope_index, buffer)) {
+		if (cbackend_prototypes (unit, scope_index, buffer)) {
+			if (cbackend_typeinfo (unit, buffer)) {
+				if (cbackend_definitions (unit, scope_index, buffer)) {
+					result = 1;
+				} else {
+					result = 0;
+				}
+			} else {
+				result = 0;
+			}
+		} else {
+			result = 0;
+		}
+	} else {
+		result = 0;
+	}
+	return (result);
+}
+
+int		cbackend_param_scope (struct unit *unit, uint scope_index, struct cbuffer *buffer) {
+	int				result;
+	struct scope	*scope;
+	uint			decl_index;
+
+	scope = get_scope (unit, scope_index);
+	decl_index = scope->decl_begin;
+	result = 1;
+	while (result && decl_index) {
+		struct decl	*decl;
+
+		decl = get_decl (unit, decl_index);
+		Assert (decl->kind == DeclKind (param));
+		if (decl->type) {
+			result = cbackend_type (unit, decl->type, get_local_decl_name (decl->name), 0, buffer);
+		} else if (0 == strcmp (decl->name, "...")) {
+			write_string (buffer->wr, "...");
+		} else {
+			Error ("unexpected param decl");
+			result = 0;
+		}
+		if (decl->next) {
+			write_string (buffer->wr, ", ");
+		}
+		decl_index = decl->next;
+	}
+	return (result);
+}
+
+int		cbackend_unit (struct unit *unit, struct cbuffer *buffer) {
+	int		result;
+
+	result = cbackend_unit_scope (unit, unit->scope, buffer);
+	return (result);
+}
+
+int		cbackend_include (struct unit *unit, const char *include, struct cbuffer *buffer) {
+	write_c_new_line (buffer);
+	if (include[0] == '@') {
+		write_format (buffer->wr, "#include <%s>", include + 1);
+	} else {
+		write_format (buffer->wr, "#include \"%s\"", include);
+	}
+	return (1);
+}
+
+int		cbackend_define (struct unit *unit, const char *name, struct cbuffer *buffer) {
+	write_c_new_line (buffer);
+	write_format (buffer->wr, "#define %s", name);
+	return (1);
+}
 
 

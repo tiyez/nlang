@@ -1,6 +1,6 @@
 
 
-int		push_unit_path (struct unit *unit, int index) {
+int		push_unit_path (struct unit *unit) {
 	int		result;
 
 	if (Prepare_Array (unit->paths, 1)) {
@@ -8,7 +8,11 @@ int		push_unit_path (struct unit *unit, int index) {
 
 		path = Push_Array (unit->paths);
 		path->kind = Path_Kind (unit);
-		path->unit.index = index;
+		if (unit->flags[Flag (lib)]) {
+			path->unit.index = Get_Bucket_Element_Index (g_libs, unit);
+		} else {
+			path->unit.index = 0;
+		}
 		result = 1;
 	} else {
 		result = 0;
@@ -16,7 +20,7 @@ int		push_unit_path (struct unit *unit, int index) {
 	return (result);
 }
 
-int		push_function_path (struct unit *unit, int decl) {
+int		push_function_path (struct unit *unit, uint decl) {
 	int		result;
 
 	if (Prepare_Array (unit->paths, 1)) {
@@ -32,7 +36,7 @@ int		push_function_path (struct unit *unit, int decl) {
 	return (result);
 }
 
-int		push_macro_path (struct unit *unit, int decl) {
+int		push_macro_path (struct unit *unit, uint decl) {
 	int		result;
 
 	if (Prepare_Array (unit->paths, 1)) {
@@ -48,7 +52,7 @@ int		push_macro_path (struct unit *unit, int decl) {
 	return (result);
 }
 
-int		push_tag_path (struct unit *unit, int decl) {
+int		push_tag_path (struct unit *unit, uint decl) {
 	int		result;
 
 	if (Prepare_Array (unit->paths, 1)) {
@@ -64,7 +68,7 @@ int		push_tag_path (struct unit *unit, int decl) {
 	return (result);
 }
 
-int		push_decl_path (struct unit *unit, int decl) {
+int		push_decl_path (struct unit *unit, uint64 decl) {
 	int		result;
 
 	if (Prepare_Array (unit->paths, 1)) {
@@ -80,7 +84,7 @@ int		push_decl_path (struct unit *unit, int decl) {
 	return (result);
 }
 
-int		push_flow_path (struct unit *unit, int scope, int index) {
+int		push_flow_path (struct unit *unit, uint scope, uint index) {
 	int		result;
 
 	if (Prepare_Array (unit->paths, 1)) {
@@ -97,7 +101,7 @@ int		push_flow_path (struct unit *unit, int scope, int index) {
 	return (result);
 }
 
-int		push_type_path (struct unit *unit, int head) {
+int		push_type_path (struct unit *unit, uint head) {
 	int		result;
 
 	if (Prepare_Array (unit->paths, 1)) {
@@ -113,7 +117,7 @@ int		push_type_path (struct unit *unit, int head) {
 	return (result);
 }
 
-int		push_expr_path (struct unit *unit, int head) {
+int		push_expr_path (struct unit *unit, uint head) {
 	int		result;
 
 	if (Prepare_Array (unit->paths, 1)) {
@@ -150,63 +154,70 @@ void	print_path (struct unit *unit, struct path *paths, FILE *file) {
 		struct path	*path;
 
 		path = paths + index;
-		switch (path->kind) {
-			case Path_Kind (unit): {
-				fprintf (file, "-- unit: %d\n", path->unit.index);
-			} break ;
-			case Path_Kind (function): {
-				struct decl	*decl;
+		if (path->kind == Path_Kind (unit)) {
+			struct unit	*pathunit;
 
-				decl = get_decl (unit, path->function.decl);
-				fprintf (file, "-- function: %s ", decl->name);
+			if (path->unit.index) {
+				pathunit = Get_Bucket_Element (g_libs, path->unit.index);
+			} else {
+				pathunit = g_unit;
+			}
+			fprintf (file, "-- unit: %s (%s)\n", pathunit->filename, pathunit->filepath);
+		} else if (path->kind == Path_Kind (function)) {
+			struct decl	*decl;
+
+			decl = get_decl (unit, path->function.decl);
+			fprintf (file, "-- function: %s ", decl->name);
+			print_type (unit, decl->type, file);
+			fprintf (file, "\n");
+		} else if (path->kind == Path_Kind (macro)) {
+			struct decl	*decl;
+
+			decl = get_decl (unit, path->macro.decl);
+			fprintf (file, "-- macro: %s\n", decl->name);
+		} else if (path->kind == Path_Kind (tag)) {
+			struct decl	*decl;
+
+			decl = get_decl (unit, path->tag.decl);
+			fprintf (file, "-- tag: %s %s\n", g_tagname[decl->tag.type], decl->name);
+		} else if (path->kind == Path_Kind (decl)) {
+			struct decl	*decl;
+
+			if (is_lib_index (path->decl.index)) {
+				decl = get_decl (get_lib (get_lib_index (path->decl.index)), unlib_index (path->decl.index));
+			} else {
+				decl = get_decl (unit, unlib_index (path->decl.index));
+			}
+			fprintf (file, "-- decl: %s ", decl->name);
+			if (decl->type) {
 				print_type (unit, decl->type, file);
-				fprintf (file, "\n");
-			} break ;
-			case Path_Kind (macro): {
-				struct decl	*decl;
+			}
+			fprintf (file, "\n");
+		} else if (path->kind == Path_Kind (flow)) {
+			struct flow	*flow;
 
-				decl = get_decl (unit, path->macro.decl);
-				fprintf (file, "-- macro: %s\n", decl->name);
-			} break ;
-			case Path_Kind (tag): {
-				struct decl	*decl;
-
-				decl = get_decl (unit, path->tag.decl);
-				fprintf (file, "-- tag: %s %s\n", g_tagname[decl->tag.type], decl->name);
-			} break ;
-			case Path_Kind (decl): {
-				struct decl	*decl;
-
-				decl = get_decl (unit, path->decl.index);
-				fprintf (file, "-- decl: %s ", decl->name);
-				if (decl->type >= 0) {
-					print_type (unit, decl->type, file);
-				}
-				fprintf (file, "\n");
-			} break ;
-			case Path_Kind (flow): {
-				struct flow	*flow;
-
-				flow = get_flow (unit, path->flow.index);
-				switch (flow->type) {
-					case FlowType (decl): fprintf (file, "-- flow: decl\n"); break ;
-					case FlowType (expr): fprintf (file, "-- flow: expr\n"); break ;
-					case FlowType (block): fprintf (file, "-- flow: block\n"); break ;
-					case FlowType (if): fprintf (file, "-- flow: if\n"); break ;
-					case FlowType (while): fprintf (file, "-- flow: while\n"); break ;
-					case FlowType (dowhile): fprintf (file, "-- flow: dowhile\n"); break ;
-				}
-			} break ;
-			case Path_Kind (type): {
-				fprintf (file, "-- type: ");
-				print_type (unit, path->type.head, file);
-				fprintf (file, "\n");
-			} break ;
-			case Path_Kind (expr): {
-				fprintf (file, "-- expr: ");
-				print_expr (unit, path->expr.head, file);
-				fprintf (file, "\n");
-			} break ;
+			flow = get_flow (unit, path->flow.index);
+			if (flow->type == FlowType (decl)) {
+				fprintf (file, "-- flow: decl\n");
+			} else if (flow->type == FlowType (expr)) {
+				fprintf (file, "-- flow: expr\n");
+			} else if (flow->type == FlowType (block)) {
+				fprintf (file, "-- flow: block\n");
+			} else if (flow->type == FlowType (if)) {
+				fprintf (file, "-- flow: if\n");
+			} else if (flow->type == FlowType (while)) {
+				fprintf (file, "-- flow: while\n");
+			} else if (flow->type == FlowType (dowhile)) {
+				fprintf (file, "-- flow: dowhile\n");
+			}
+		} else if (path->kind == Path_Kind (type)) {
+			fprintf (file, "-- type: ");
+			print_type (unit, path->type.head, file);
+			fprintf (file, "\n");
+		} else if (path->kind == Path_Kind (expr)) {
+			fprintf (file, "-- expr: ");
+			print_expr (unit, path->expr.head, file);
+			fprintf (file, "\n");
 		}
 		index += 1;
 	}

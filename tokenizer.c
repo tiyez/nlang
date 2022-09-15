@@ -42,16 +42,24 @@
 #ifndef Tokenizer__With_Tests
 #	define Tokenizer__With_Tests 0
 #endif
-#ifndef Tokenizer__stpcpy
-#	define Tokenizer__stpcpy stpcpy
-#endif
 #ifndef Tokenizer__skip_newline
 #	define Tokenizer__skip_newline 0
 #endif
 #ifndef Tokenizer__no_line_directives
 #	define Tokenizer__no_line_directives 0
 #endif
+#ifndef Tokenizer__Is_Global_Pos
+#	define Tokenizer__Is_Global_Pos 0
+#endif
 /* end parameters */
+
+static char	*own_stpcpy (char *restrict dest, const char *restrict source) {
+	while (*source) {
+		*dest++ = *source++;
+	}
+	*dest = 0;
+	return (dest);
+}
 
 struct tokenizer {
 	char	*start_data;
@@ -63,6 +71,7 @@ struct tokenizer {
 
 enum token {
 	Token (eof),
+	Token (start),
 	Token (newline),
 	Token (identifier),
 	Token (preprocessing_number),
@@ -88,6 +97,7 @@ int		is_string_token (int token) {
 const char	*get_token_name (int token) {
 	switch (token) {
 		case Token (eof): return "Token (eof)";
+		case Token (start): return "Token (start)";
 		case Token (newline): return "Token (newline)";
 		case Token (identifier): return "Token (identifier)";
 		case Token (preprocessing_number): return "Token (preprocessing_number)";
@@ -149,7 +159,7 @@ int		prepare_tokenizer (struct tokenizer *tokenizer, usize tofit) {
 		void	*memory;
 		usize	old_cap = tokenizer->cap;
 
-		Debug ("cap: %zu; tofit: %zu; tokenizer->size: %zu; footer size: %zu; available: %zd", tokenizer->cap, tofit, tokenizer->size, Token_Page_Footer_Size, tokenizer->cap - tokenizer->size);
+		// Debug ("cap: %zu; tofit: %zu; tokenizer->size: %zu; footer size: %zu; available: %zd", tokenizer->cap, tofit, tokenizer->size, Token_Page_Footer_Size, tokenizer->cap - tokenizer->size);
 		Assert (tokenizer->cap == 0 || tokenizer->size + Token_Page_Footer_Size <= tokenizer->cap);
 		memory = expand_array (0, &tokenizer->cap);
 		if (memory) {
@@ -209,6 +219,17 @@ int		get_token_length (const char *token) {
 	second_length = (unsigned char) (token + length + 1)[0] << 8;
 	second_length += (unsigned char) (token + length + 1)[1];
 	Assert (length == second_length);
+	return (length);
+}
+
+int		get_token_original_length (const char *token) {
+	int		length;
+
+	if (token[-1] == Token (string)) {
+		length = 2 + get_unescaped_string_length (token);
+	} else {
+		length = get_token_length (token);
+	}
 	return (length);
 }
 
@@ -280,18 +301,52 @@ int		push_string_token (struct tokenizer *tokenizer, int offset, const char *str
 }
 
 int		g_tokenizer_for_print;
+struct position	g_pos;
 
-const char	*next_const_token (const char *tokens, struct position *pos) {
+void	init_pos (struct position *pos, const char *filename) {
+	memset (pos, 0, sizeof *pos);
+	pos->filename = filename;
+	pos->line = 1;
+	pos->column = 1;
+	pos->at_the_beginning = 1;
+}
+
+void	init_global_pos (const char *filename) {
+	init_pos (&g_pos, filename);
+}
+
+void	set_global_pos (struct position *pos) {
+	g_pos = *pos;
+}
+
+const struct position *get_global_pos (void) {
+	return &g_pos;
+}
+
+int		get_current_line (void) {
+	return g_pos.line;
+}
+
+int		get_current_column (void) {
+	return g_pos.column;
+}
+
+const char	*next_const_token_ex (const char *tokens, struct position *pos, int skip_nl) {
 	const char	*old = tokens;
 
-	if (pos) {
+#if Tokenizer__Is_Global_Pos
+#	define Pos (&g_pos)
+#else
+#	define Pos pos
+#endif
+	if (Pos) {
 		if (tokens[-1] == Token (newline)) {
-			pos->line += tokens[0];
-			pos->column = 1;
-			pos->at_the_beginning = 1;
+			Pos->line += tokens[0];
+			Pos->column = 1;
+			Pos->at_the_beginning = 1;
 		} else {
-			pos->column += get_token_length (tokens);
-			pos->at_the_beginning = 0;
+			Pos->column += get_token_original_length (tokens);
+			Pos->at_the_beginning = 0;
 		}
 	}
 	int length = get_token_length (tokens);
@@ -307,21 +362,41 @@ const char	*next_const_token (const char *tokens, struct position *pos) {
 		tokens += Token_Page_Header_Size;
 		tokens += Token_Header_Size;
 	}
-	if (pos && tokens[-1] != Token (newline)) {
-		pos->column += get_token_offset (tokens);
+	if (Pos && tokens[-1] != Token (newline)) {
+		Pos->column += get_token_offset (tokens);
 	}
 	if (!g_tokenizer_for_print) {
-#if Tokenizer__skip_newline
-		if (tokens[-1] == Token (newline)) {
-			tokens = next_const_token (tokens, pos);
+		if (skip_nl && tokens[-1] == Token (newline)) {
+			tokens = next_const_token_ex (tokens, Pos, skip_nl);
 		}
-#endif
 	}
 	return (tokens);
+#undef Pos
+}
+
+const char	*next_const_token (const char *tokens, struct position *pos) {
+	return (next_const_token_ex (tokens, pos, Tokenizer__skip_newline));
+}
+
+char	*next_token_ex (char *tokens, struct position *pos, int skip_nl) {
+	return ((char *) next_const_token_ex (tokens, pos, skip_nl));
 }
 
 char	*next_token (char *tokens, struct position *pos) {
 	return ((char *) next_const_token (tokens, pos));
+}
+
+char	*prev_token (char *token);
+
+char	*get_beginning_token (char *tokens) {
+	char	*token;
+
+	token = tokens;
+	do {
+		tokens = token;
+		token = prev_token (token);
+	} while (token && token[-1] != Token (start) && token[-1] != Token (newline));
+	return (tokens);
 }
 
 static unsigned	escape_symbol (const char **psource) {
@@ -400,6 +475,8 @@ static void	unescape_symbol (int ch, char **pout) {
 		default: {
 			if (isprint (ch)) {
 				*out++ = ch;
+			} else if (ch > 127) {
+				*out++ = ch;
 			} else {
 				*out++ = '\\';
 				if (!ch) {
@@ -421,8 +498,34 @@ static void	unescape_symbol (int ch, char **pout) {
 	*pout = out;
 }
 
+int		get_unescaped_string_length (const char *token) {
+	int		length, result;
+
+	length = get_token_length (token);
+	result = 0;
+	while (length > 0) {
+		char	seq[8] = {0}, *ptr = seq;
+
+		unescape_symbol ((unsigned char) *token, &ptr);
+		result += ptr - seq;
+		token += 1;
+		length -= 1;
+	}
+	return (result);
+}
+
 char	*get_first_token (struct tokenizer *tokenizer) {
-	return (tokenizer->start_data ? tokenizer->start_data + Token_Page_Header_Size + Token_Header_Size : 0);
+	char	*token;
+
+	if (tokenizer->start_data) {
+		token = tokenizer->start_data + Token_Page_Header_Size + Token_Header_Size;
+		if (token[-1] == Token (start)) {
+			token = next_token (token, 0);
+		}
+	} else {
+		token = 0;
+	}
+	return (token);
 }
 
 char	*get_next_from_tokenizer (struct tokenizer *tokenizer, char *token) {
@@ -438,11 +541,33 @@ char	*get_next_from_tokenizer (struct tokenizer *tokenizer, char *token) {
 	return (token);
 }
 
+char	*get_next_from_tokenizer_ex (struct tokenizer *tokenizer, char *token, int skip_nl) {
+	if (token) {
+		if (tokenizer->current == token) {
+			token = 0;
+		} else {
+			token = next_token_ex (token, 0, skip_nl);
+		}
+	} else {
+		token = get_first_token (tokenizer);
+	}
+	return (token);
+}
+
 int		end_tokenizer (struct tokenizer *tokenizer, int offset) {
 	int		success;
 
 	if ((success = prepare_tokenizer (tokenizer, Calc_Token_Size (0)))) {
 		tokenizer->current = push_token_bytes (tokenizer, offset, Token (eof), 0, 0);
+	}
+	return (success);
+}
+
+int		start_tokenizer (struct tokenizer *tokenizer) {
+	int		success;
+
+	if ((success = prepare_tokenizer (tokenizer, Calc_Token_Size (0)))) {
+		tokenizer->current = push_token_bytes (tokenizer, 0, Token (start), 0, 0);
 	}
 	return (success);
 }
@@ -546,8 +671,8 @@ int		make_token (struct tokenizer *tokenizer, struct token_state *state, const c
 		int		pushed = 0;
 		const char	*start;
 
-		content += 1;
 		start = content;
+		content += 1;
 		while (*content && *content != end_symbol && success) {
 			if (buffer - buffer_memory >= (isize) sizeof buffer_memory) {
 				if ((success = push_string_token (tokenizer, state->offset, buffer_memory, sizeof buffer_memory, pushed))) {
@@ -590,7 +715,7 @@ int		make_token (struct tokenizer *tokenizer, struct token_state *state, const c
 			}
 			content += 1;
 		}
-		state->column += (content - start) + 1;
+		state->column += content - start;
 		state->offset = 0;
 #if Tokenizer__Is_Preprocessor && Tokenizer__Is_Include_Path_Special_Token
 		state->check_include = 0;
@@ -653,15 +778,10 @@ int		make_token (struct tokenizer *tokenizer, struct token_state *state, const c
 	return (success);
 }
 
-int		revert_token (struct tokenizer *tokenizer) {
-	int		success;
+char	*prev_token (char *token) {
+	int			length;
 
-	/* TODO: fix inter-paged revert case */
-	if (tokenizer->current) {
-		const char	*token = tokenizer->current;
-		int			length, drop_length;
-
-		drop_length = get_token_length (token);
+	if (token[-1] != Token (link)) {
 		token -= Token_Header_Size;
 		token -= 2;
 		length = token[0] << 8;
@@ -669,6 +789,51 @@ int		revert_token (struct tokenizer *tokenizer) {
 		token -= 1;
 		Assert (*token == 0);
 		token -= length;
+	}
+	if (token[-1] == Token (link)) {
+		char	*last_token;
+
+		last_token = *((void **) token + 1);
+		if (last_token) {
+			Assert (last_token[-1] == Token (link));
+			length = get_token_length (last_token);
+			Assert (length == sizeof (void *) * 4);
+			token = last_token;
+			token -= Token_Header_Size;
+			token -= 2;
+			length = token[0] << 8;
+			length += token[1];
+			token -= 1;
+			Assert (*token == 0);
+			token -= length;
+			if (token[-1] == Token (link)) {
+				token = prev_token (token);
+			}
+		} else {
+			Error ("no last token");
+			token = 0;
+		}
+	}
+	return (token);
+}
+
+int		revert_token (struct tokenizer *tokenizer) {
+	int		success;
+
+	if (tokenizer->current) {
+		const char	*token = tokenizer->current;
+		int			length, drop_length = 0;
+
+		if (token[-1] != Token (link)) {
+			drop_length = get_token_length (token);
+			token -= Token_Header_Size;
+			token -= 2;
+			length = token[0] << 8;
+			length += token[1];
+			token -= 1;
+			Assert (*token == 0);
+			token -= length;
+		}
 		if (token[-1] == Token (link)) {
 			const char	*last_token;
 
@@ -680,7 +845,7 @@ int		revert_token (struct tokenizer *tokenizer) {
 				*(void **) last_token = 0;
 				length = get_token_length (last_token);
 				Assert (length == sizeof (void *) * 4);
-				Debug ("Return to previous page");
+				// Debug ("Return to previous page");
 				tokenizer->data = *((void **) last_token + 1);
 				tokenizer->size = (usize) *((void **) last_token + 2);
 				tokenizer->cap = (usize) *((void **) last_token + 3);
@@ -775,7 +940,7 @@ char	*tokenize_to (struct tokenizer *tokenizer, const char *content, const char 
 char	*tokenize_with (struct tokenizer *tokenizer, const char *content, int *nl_array, int ensure_nl_at_end, const char *filename) {
 	int					success = 1;
 	int					was_allocated = !!tokenizer->data;
-	char				*begin = tokenizer->current;
+	char				*begin;
 	struct token_state	state = {
 		.tabsize = 1,
 		.line = 1,
@@ -784,6 +949,8 @@ char	*tokenize_with (struct tokenizer *tokenizer, const char *content, int *nl_a
 		.filename = filename,
 	};
 
+	start_tokenizer (tokenizer);
+	begin = tokenizer->current;
 	while (success && *content) {
 		success = make_token (tokenizer, &state, &content);
 	}
@@ -802,12 +969,11 @@ char	*tokenize_with (struct tokenizer *tokenizer, const char *content, int *nl_a
 			free_tokenizer (tokenizer);
 		}
 	}
-	return (success ? get_next_from_tokenizer (tokenizer, begin) : 0);
+	return (success ? get_next_from_tokenizer_ex (tokenizer, begin, 0) : 0);
 }
 
-int		unescape_string (const char **ptoken, char *out, usize cap, usize *size) {
+int		unescape_string (const char *token, char *out, usize cap, usize *size) {
 	usize	index = 0;
-	const char	*token = *ptoken;
 	char	*out_start = out;
 	int		success = 1;
 	int		length = get_token_length (token);
@@ -825,7 +991,6 @@ int		unescape_string (const char **ptoken, char *out, usize cap, usize *size) {
 			success = 0;
 		}
 	}
-	*ptoken = token;
 	return (success);
 }
 
@@ -859,7 +1024,7 @@ int		unescape_string_token (const char *token, char *out, usize cap, usize *size
 
 	if (cap > 3) {
 		*out++ = get_open_string (tkn);
-		result = unescape_string (&token, out, cap - 3, size);
+		result = unescape_string (token, out, cap - 3, size);
 		if (result) {
 			out[(*size)++] = get_close_string (tkn);
 			out[*size] = 0;
@@ -886,7 +1051,7 @@ int		concatenate_token (struct tokenizer *tokenizer, const char *token, const st
 			if (is_string_token (tokenizer->current[-1])) {
 				success = unescape_string_token (tokenizer->current, content, cap, &size);
 			} else {
-				size = Tokenizer__stpcpy (content, tokenizer->current) - content;
+				size = own_stpcpy (content, tokenizer->current) - content;
 				if (size < cap) {
 					if (is_string_token (token[-1])) {
 						usize	new_size = 0;
@@ -894,7 +1059,7 @@ int		concatenate_token (struct tokenizer *tokenizer, const char *token, const st
 						success = unescape_string_token (token, content + size, cap - size, &new_size);
 						size += new_size;
 					} else {
-						size = Tokenizer__stpcpy (content + size, token) - content;
+						size = own_stpcpy (content + size, token) - content;
 						if (size < cap) {
 							content[size] = 0;
 							success = 1;
@@ -947,7 +1112,7 @@ void	print_string_token (const char *token, FILE *file) {
 	int		tkn = token[-1];
 
 	fprintf (file, "%c", get_open_string (tkn));
-	while (!unescape_string (&token, buffer, Array_Count (buffer) - 1, &bufsize)) {
+	while (!unescape_string (token, buffer, Array_Count (buffer) - 1, &bufsize)) {
 		buffer[bufsize] = 0;
 		fprintf (file, "%s", buffer);
 	}
@@ -957,7 +1122,7 @@ void	print_string_token (const char *token, FILE *file) {
 
 int		g_no_line_directives;
 
-void	print_tokens_until (const char *tokens, int with_lines, const char *line_prefix, int end_token, FILE *file) {
+void	print_tokens_until (const char *tokens, int with_lines, int start_line, int start_column, const char *line_prefix, int end_token, FILE *file) {
 	struct position	cpos = {
 		.filename = "",
 		.line = 1,
@@ -965,6 +1130,12 @@ void	print_tokens_until (const char *tokens, int with_lines, const char *line_pr
 	}, *pos = &cpos;
 	const char	*prev = 0;
 
+	if (start_line > 0) {
+		pos->line = start_line;
+	}
+	if (start_column > 0) {
+		pos->column = start_column;
+	}
 	g_tokenizer_for_print = 1;
 	fprintf (file, "%s", line_prefix);
 	if (with_lines) {
@@ -1013,7 +1184,6 @@ void	print_tokens_until (const char *tokens, int with_lines, const char *line_pr
 			const char	*next;
 			int			should_print = 1;
 
-			Debug ("HERE");
 			next = next_const_token (tokens, 0);
 			if (next[-1]) {
 				if (next[-1] && next[-1] == Token (identifier) && 0 == strcmp (next, "line")) {
@@ -1053,7 +1223,7 @@ void	print_tokens_until (const char *tokens, int with_lines, const char *line_pr
 }
 
 void	print_tokens (const char *tokens, int with_lines, const char *line_prefix, FILE *file) {
-	print_tokens_until (tokens, with_lines, line_prefix, Token (eof), file);
+	print_tokens_until (tokens, with_lines, 0, 0, line_prefix, Token (eof), file);
 }
 
 void	print_tokens_to_string (const char *tokens, char **pstring) {

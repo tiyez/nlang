@@ -1,0 +1,226 @@
+
+
+#manifest {
+	libs {
+		"@cstd";
+//		"@tokenizer" {
+//			preprocessor_mode 1;
+//			include_path_special_token 1;
+//			trigraph 1;
+//			skip_newline 0;
+//			line_directives 1;
+//			is_global_pos 0;
+//		}
+	}
+//	sources {
+//		"source1.n";
+//		"source2.n";
+//	}
+}
+
+
+#macro Assert (expr) {
+	if expr {
+		1;
+	} else {
+		*([*int] 0) = 0;
+	}
+}
+
+enum hello {
+	hello;
+	world;
+}
+#accessor Hello enum hello;
+
+array enum hello[3] {
+	Hello (hello);
+	Hello (world);
+	Hello (world);
+}
+
+get_enum_name (*const char) (index int, typeinfo struct typeinfo) {
+	result = typeinfo.members[index].name;
+}
+
+enum scopekind {
+	unit;
+	func;
+	code;
+	tag;
+	param;
+	macro;
+}
+#accessor ScopeKind enum scopekind;
+
+enum tagtype {
+	invalid;
+	struct;
+	union;
+	enum;
+}
+#accessor TagType enum tagtype;
+
+struct scope {
+	kind			enum scopekind;
+	tagtype			enum tagtype;
+	parent_scope	int;
+	param_scope		int;
+	type_index		int;
+	decl_begin		int;
+	decl_last		int;
+	flow_begin		int;
+	flow_last		int;
+}
+
+array_struct struct scope[3] {
+	{ 1; }
+}
+
+print_struct void (ptr *void, typeinfo *const struct typeinfo) {
+	Assert (typeinfo->kind == TypeKind (struct));
+
+}
+
+#type HINSTANCE usize;
+
+//#macro Nested_Assert () {
+//	Assert;
+//}
+
+const Pi = 3.14;
+
+const Assert2 = Assert;
+const Hello2 = Hello;
+
+#macro Error (...) {
+	printf ("%s:%s: ", __Filename, __Function);
+	printf (...);
+	printf ("\n");
+}
+
+/*
+#macro Get_Pointer_Size () {
+	constif __Is_Flag (build32) {
+
+	} else constif __Is_Platform (windows) {
+
+	}
+}
+*/
+
+//#static_assert __Is_Platform (windows) == 1;
+
+enum server_error (message *const char, message_ru *const char) {
+	internal,					"internal error",				"Внутренняя ошибка сервера";
+	invalid_message_size,		"invalid message size",			"Невалидный размер сообщения";
+	outdated_message_version,	"outdated message version",		"Устаревшая версия сообщения";
+	unexpected_message_type,	"unexpected message type",		"Незнакомый тип сообщения";
+	message_payload_is_too_big,	"message payload is too big",	"Тело сообщения слишком большое";
+	invalid_message_payload,	"invalid message payload",		"Невалидное содержание сообщения";
+	outdated_client,			"outdated client",				"Клиент устарел";
+}
+#accessor Server_Error enum server_error;
+
+#funcprefix main "__cdecl";
+main int (argc int, argv (*char)[]) {
+	var index			int;
+	var member			*const struct typemember;
+	var pi				float;
+	var instance		HINSTANCE;
+	alias hello_members	[enum hello].members;
+
+	Error ("Hello %s", "World");
+	instance = 0;
+	pi = Pi;
+//	Nested_Assert () (1 != 1);
+	Assert2 (1 == 1);
+	index = 0;
+	member = hello_members;
+	while is_member (member) {
+		printf ("member: %s\n", member->name);
+		member += 1;
+	}
+	printf ("Hello (hello): %s\n", get_enum_name (Hello (hello), [enum hello]));
+	printf ("Hello (world): %s\n", get_enum_name (Hello2 (world), [enum hello]));
+	printf ("sizeof index = %zu\n", sizeof index);
+	printf ("sizeof [*float] = %zu\n", sizeof [float]);
+	printf ("%s\n", Server_Error.message_ru[Server_Error (internal)]);
+	result = 1;
+}
+
+
+
+
+
+
+
+
+
+/*
+
+enum server_error (message *const char, message_ru *const char) {
+	internal = 1,				"internal error",				"Внутренняя ошибка сервера";
+	invalid_message_size,		"invalid message size",			"Невалидный размер сообщения";
+	outdated_message_version,	"outdated message version",		"Устаревшая версия сообщения";
+	unexpected_message_type,	"unexpected message type",		"Незнакомый тип сообщения";
+	message_payload_is_too_big,	"message payload is too big",	"Тело сообщения слишком большое";
+	invalid_message_payload,	"invalid message payload",		"Невалидное содержимое сообщения";
+	outdated_client,			"outdated client",				"Клиент устарел";
+}
+#accessor Server_Error enum server_error;
+
+main	int (argc int, argv (*char)[]) {
+	var error enum server_error;
+	var name *const char;
+	var message *const char;
+	var message_ru *const char;
+
+	error = Server_Error (internal);
+	name = Server_Error.name[error]; // "internal"
+	message = Server_Error.message[error]; // "internal error"
+	message_ru = Server_Error.message_ru[error]; // "Внутренняя ошибка сервера"
+	printf ("%d %s %s %s", error, name, message, message_ru);
+}
+*/
+
+
+
+/*
+
+#define Server_Error(name) Server_Error_##name
+enum server_error {
+	Server_Error (internal),
+	Server_Error (invalid_message_size),
+	Server_Error (outdated_message_version),
+	Server_Error (unexpected_message_type),
+	Server_Error (message_payload_is_too_big),
+	Server_Error (invalid_message_payload),
+	Server_Error (outdated_client),
+};
+
+const char	*server_error_string[] = {
+	"internal",
+	"invalid message size",
+	"outdated message version",
+	"unexpected message type",
+	"message payload is too big",
+	"invalid message payload",
+	"outdated client",
+};
+
+const char	*server_error_string_ru[] = {
+	"Внутренняя ошибка сервера",
+	"Невалидный размер сообщения",
+	"Устаревшая версия сообщения",
+	"Незнакомый тип сообщения",
+	"Тело сообщение слишком большое",
+	"Невалидное содержимое сообщения",
+	"Клиент устарел",
+};
+
+*/
+
+
+
+
