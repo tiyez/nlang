@@ -92,7 +92,7 @@ int		add_decl_to_lookup_table (struct unit *unit, struct unit *decl_unit, uint d
 			result = 0;
 		}
 	} else if (decl->kind == DeclKind (define)) {
-		if (decl->define.kind == DefineKind (macro) || decl->define.kind == DefineKind (accessor) || decl->define.kind == DefineKind (external)) {
+		if (decl->define.kind == DefineKind (macro) || decl->define.kind == DefineKind (accessor) || decl->define.kind == DefineKind (external) || decl->define.kind == DefineKind (builtin)) {
 			if (Prepare_Array (unit->ordinaries, 1)) {
 				struct declref	*ref;
 
@@ -358,22 +358,22 @@ const char	*next_option (const char *opt) {
 	return (opt);
 }
 
+const char	*get_option_value (const char *option) {
+	option = next_const_token (option, 0);
+	return (option);
+}
+
 const char	*get_value_from_options (const char *options, const char *option_name) {
 	const char	*result;
 
 	result = 0;
 	while (!result && options) {
 		if (0 == strcmp (options, option_name)) {
-			result = options;
+			result = get_option_value (options);
 		}
 		options = next_option (options);
 	}
 	return (result);
-}
-
-const char	*get_option_value (const char *option) {
-	option = next_const_token (option, 0);
-	return (option);
 }
 
 int		are_option_values_the_same (const char *left, const char *right) {
@@ -764,11 +764,11 @@ int		build_unit (struct unit *unit, const char *entry_filename, const char *incl
 		Assert (0 == strrchr (entry_filename, '\\'));
 		content = read_entire_file (path, &size);
 		if (content) {
+			unit->filepath = strdup (path);
 			if (parse_source (unit, content, size, entry_filename)) {
 				free (content);
 				content = 0;
 				unit->flags[Flag (entry)] = 0;
-				unit->filepath = strdup (path);
 				if (unit->manifest.libs) {
 					const char	*lib;
 
@@ -910,6 +910,7 @@ int		build_unit (struct unit *unit, const char *entry_filename, const char *incl
 							if (make_path_from_relative (path, working_path, source)) {
 								content = read_entire_file (path, &size);
 								if (content) {
+									unit->filepath = strdup (path);
 									if (parse_source (unit, content, size, source)) {
 										result = 1;
 									} else {

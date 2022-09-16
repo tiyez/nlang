@@ -10,14 +10,14 @@ const char	*get_tag_name (int unit_index, enum tagtype tagtype, const char *tagn
 const char	*get_enum_name (int unit_index, const char *tagname, const char *name) {
 	static char	buffer[128];
 
-	snprintf (buffer, sizeof buffer, "u%de_%s__%s", unit_index, tagname, name);
+	snprintf (buffer, sizeof buffer, "u%dec_%s__%s", unit_index, tagname, name);
 	return (buffer);
 }
 
 const char	*get_enum_table_name (int unit_index, const char *enum_name, const char *table_name) {
 	static char	buffer[128];
 
-	snprintf (buffer, sizeof buffer, "g_u%det_%s_%s", unit_index, enum_name, table_name);
+	snprintf (buffer, sizeof buffer, "u%det_%s__%s", unit_index, enum_name, table_name);
 	return (buffer);
 }
 

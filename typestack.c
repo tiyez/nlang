@@ -485,5 +485,54 @@ void	update_typestack_recursive (struct unit *unit, uint expr_index, struct type
 	}
 }
 
+int		is_typestacks_compatible (struct typestack *leftstack, struct typestack *rightstack, int is_void_acceptable) {
+	int		result;
+	struct type	*left, *right;
 
+	left = get_typestack_head (leftstack);
+	right = get_typestack_head (rightstack);
+	Assert (left);
+	Assert (right);
+	if (left->kind == right->kind) {
+		if (left->kind == TypeKind (basic)) {
+			if (left->basic.type != BasicType (void) && right->basic.type != BasicType (void)) {
+				result = 1;
+			} else {
+				result = is_void_acceptable;
+			}
+		} else if (left->kind == TypeKind (tag)) {
+			Assert (left->tag.decl);
+			Assert (right->tag.decl);
+			if (left->tag.type == right->tag.type && left->tag.decl == right->tag.decl) {
+				result = 1;
+			} else {
+				result = 0;
+			}
+		} else if (left->kind == TypeKind (mod)) {
+			if (left->mod.kind == right->mod.kind) {
+				struct type	lefttype, righttype;
+
+				lefttype = *left;
+				righttype = *right;
+				pop_typestack (leftstack);
+				pop_typestack (rightstack);
+				result = is_typestacks_compatible (leftstack, rightstack, lefttype.mod.kind == TypeMod (pointer));
+				push_typestack (rightstack, &righttype);
+				push_typestack (leftstack, &lefttype);
+				/* todo: compare function parameters */
+			} else {
+				result = 0;
+			}
+		} else {
+			result = 0;
+		}
+	} else if ((left->kind == TypeKind (basic) && left->basic.type == BasicType (void)) || (right->kind == TypeKind (basic) && right->basic.type == BasicType (void))) {
+		result = is_void_acceptable;
+	} else if (left->kind == TypeKind (mod) && left->mod.kind == TypeMod (pointer) && right->kind == TypeKind (basic) && is_basictype_integral (right->basic.type)) {
+		result = 1;
+	} else {
+		result = 0;
+	}
+	return (result);
+}
 

@@ -290,12 +290,13 @@ enum definekind {
 	DefineKind (visability),
 	DefineKind (funcprefix),
 	DefineKind (builtin),
+	DefineKind (assert),
 };
 static const int g_definekind_ordinal[] = {
-	1, 1, 1, 0, 0, 0, 1,
+	1, 1, 1, 0, 0, 0, 1, 0,
 };
 const char *g_definekind[] = {
-	"macro", "accessor", "external", "type", "visability", "funcprefix", "builtin",
+	"macro", "accessor", "external", "type", "visability", "funcprefix", "builtin", "assert",
 };
 
 #define Visability(name) Visability_##name
@@ -383,6 +384,10 @@ struct decl_define_builtin {
 	enum builtin	type;
 };
 
+struct decl_define_assert {
+	uint	expr;
+};
+
 struct decl_define {
 	enum definekind	kind;
 	union {
@@ -391,6 +396,7 @@ struct decl_define {
 		struct decl_define_visability	visability;
 		struct decl_define_funcprefix	funcprefix;
 		struct decl_define_builtin		builtin;
+		struct decl_define_assert		assert;
 	};
 };
 
@@ -873,6 +879,9 @@ enum platform {
 	Platform (linux),
 	Platform (macos),
 };
+const char	*g_platform_name[] = {
+	"windows", "linux", "macos",
+};
 
 struct tokenizer	g_tokenizer;
 struct path		**g_path = 0;
@@ -943,6 +952,7 @@ uint	make_expr_copy (struct unit *unit, struct unit *decl_unit, uint expr_index)
 uint	make_scope_copy (struct unit *unit, struct unit *decl_unit, uint scope_index, uint parent_scope, uint param_scope);
 uint64	find_decl_in_table (struct unit *unit, const char *name, enum tagtype tagtype, int is_typedef);
 void	push_const_char_pointer_to_typestack (struct typestack *typestack);
+const char	*get_value_from_options (const char *options, const char *option_name);
 
 int		is_lib_index (uint64 index) {
 	return ((index >> 32) != 0);

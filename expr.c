@@ -219,17 +219,15 @@ int		count_occupied_bits_for_dec (const char *digits) {
 	return (power);
 }
 
-uint	make_expr_constant (struct unit *unit, char *token) {
-	int					result;
- 	uint				index;
- 	struct exprvalue	value;
-	char				*suffix;
-	char				*digits;
-	char				*end;
-	usize				digits_len;
-	int					occupied_bits;
-	int					base;
-	int					is_float;
+int		parse_constant_value (struct unit *unit, char *token, struct exprvalue *value) {
+	char	*suffix;
+	char	*digits;
+	char	*end;
+	usize	digits_len;
+	int		occupied_bits;
+	int		base;
+	int		is_float;
+	int		result;
 
 	is_float = 0;
 	if (*token == '0' && (token[1] == 'x' || token[1] == 'X') && token[2] && strchr ("0123456789ABCDEFabcdef", token[2])) {
@@ -300,30 +298,30 @@ uint	make_expr_constant (struct unit *unit, char *token) {
 		if (is_float) {
 			if (suffix) {
 				if (0 == strcmp (suffix, "f") || 0 == strcmp (suffix, "F")) {
-					value.type = BasicType (float);
-					value.fvalue = strtof (digits, &end);
+					value->type = BasicType (float);
+					value->fvalue = strtof (digits, &end);
 					result = 1;
 				} else if (0 == strcmp (suffix, "l") || 0 == strcmp (suffix, "L")) {
-					value.type = BasicType (longdouble);
-					value.fvalue = strtold (digits, &end);
+					value->type = BasicType (longdouble);
+					value->fvalue = strtold (digits, &end);
 					result = 1;
 				} else {
 					Parse_Error (token, unit->pos, "unrecognized integer suffix '%s'", suffix);
 					result = 0;
 				}
 			} else {
-				value.type = BasicType (double);
-				value.fvalue = strtod (digits, &end);
+				value->type = BasicType (double);
+				value->fvalue = strtod (digits, &end);
 				result = 1;
 			}
 		} else {
 			if (suffix) {
-				if (get_basictype_from_integer_suffix (suffix, &value.type)) {
-					if (occupied_bits <= 8 * get_basictype_size (value.type)) {
-						if (is_basictype_signed (value.type)) {
-							value.value = strtoll (digits, &end, base);
+				if (get_basictype_from_integer_suffix (suffix, &value->type)) {
+					if (occupied_bits <= 8 * get_basictype_size (value->type)) {
+						if (is_basictype_signed (value->type)) {
+							value->value = strtoll (digits, &end, base);
 						} else {
-							value.uvalue = strtoull (digits, &end, base);
+							value->uvalue = strtoull (digits, &end, base);
 						}
 						result = 1;
 					} else {
@@ -336,20 +334,20 @@ uint	make_expr_constant (struct unit *unit, char *token) {
 				}
 			} else if (occupied_bits <= 32) {
 				if (occupied_bits == 32) {
-					value.type = BasicType (uint);
-					value.uvalue = strtoul (digits, &end, base);
+					value->type = BasicType (uint);
+					value->uvalue = strtoul (digits, &end, base);
 				} else {
-					value.type = BasicType (int);
-					value.value = strtol (digits, &end, base);
+					value->type = BasicType (int);
+					value->value = strtol (digits, &end, base);
 				}
 				result = 1;
 			} else if (occupied_bits <= 64) {
 				if (occupied_bits == 64) {
-					value.type = BasicType (ulonglong);
-					value.uvalue = strtoull (digits, &end, base);
+					value->type = BasicType (ulonglong);
+					value->uvalue = strtoull (digits, &end, base);
 				} else {
-					value.type = BasicType (longlong);
-					value.value = strtoll (digits, &end, base);
+					value->type = BasicType (longlong);
+					value->value = strtoll (digits, &end, base);
 				}
 				result = 1;
 			} else {
@@ -358,7 +356,15 @@ uint	make_expr_constant (struct unit *unit, char *token) {
 			}
 		}
 	}
-	if (result) {
+	return (result);
+}
+
+uint	make_expr_constant (struct unit *unit, char *token) {
+	int					result;
+ 	uint				index;
+ 	struct exprvalue	value;
+
+	if (parse_constant_value (unit, token, &value)) {
 		if (Prepare_Bucket (unit->exprs, 1)) {
 			struct expr	*expr;
 			char	*ptr;

@@ -614,7 +614,108 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 							result = 0;
 						}
 					} else if (decl->define.kind == DefineKind (builtin)) {
-						Unreachable ();
+						struct expr	*right_expr;
+
+						if (expr->op.backward) {
+							right_expr = get_expr (unit, expr->op.backward);
+							Assert (right_expr->type == ExprType (funcparam));
+							if (right_expr->funcparam.expr) {
+								if (!right_expr->funcparam.next) {
+									right_expr = get_expr (unit, right_expr->funcparam.expr);
+									result = 1;
+								} else {
+									Link_Error (unit, "calling builtin function with more than one parameter");
+									result = 0;
+								}
+							} else {
+								Link_Error (unit, "calling builtin function without parameters");
+								result = 0;
+							}
+						} else {
+							Link_Error (unit, "calling builtin function without parameters");
+							result = 0;
+						}
+						if (result) {
+							if (decl->define.builtin.type == Builtin (flag)) {
+								if (right_expr->type == ExprType (identifier)) {
+									int		flag_index;
+
+									flag_index = 0;
+									while (flag_index < Array_Count (g_flag) && 0 != strcmp (g_flag[flag_index], right_expr->iden.name)) {
+										flag_index += 1;
+									}
+									if (flag_index < Array_Count (unit->flags)) {
+										expr->type = ExprType (constant);
+										expr->constant.type = BasicType (int);
+										expr->constant.value = unit->flags[flag_index];
+										init_typestack (typestack);
+										push_basictype_to_typestack (typestack, expr->constant.type, 0);
+										result = 1;
+									} else {
+										Link_Error (unit, "unknown parameter for %s builtin function", g_builtin[decl->define.builtin.type]);
+										result = 0;
+									}
+								} else {
+									Link_Error (unit, "parameter of %s must be an identifier", g_builtin[decl->define.builtin.type]);
+									result = 0;
+								}
+							} else if (decl->define.builtin.type == Builtin (platform)) {
+								if (right_expr->type == ExprType (identifier)) {
+									int		platform_index;
+
+									platform_index = 0;
+									while (platform_index < Array_Count (g_platform_name) && 0 != strcmp (g_platform_name[platform_index], right_expr->iden.name)) {
+										platform_index += 1;
+									}
+									if (platform_index < Array_Count (g_platform_name)) {
+										expr->type = ExprType (constant);
+										expr->constant.type = BasicType (int);
+										expr->constant.value = platform_index == g_platform;
+										init_typestack (typestack);
+										push_basictype_to_typestack (typestack, expr->constant.type, 0);
+										result = 1;
+									} else {
+										Link_Error (unit, "unknown parameter for %s builtin function", g_builtin[decl->define.builtin.type]);
+										result = 0;
+									}
+								} else {
+									Link_Error (unit, "parameter of %s must be an identifier", g_builtin[decl->define.builtin.type]);
+									result = 0;
+								}
+							} else if (decl->define.builtin.type == Builtin (option)) {
+								if (right_expr->type == ExprType (identifier)) {
+									if (unit->manifest.options) {
+										char	*value;
+
+										value = (char *) get_value_from_options (unit->manifest.options, right_expr->iden.name);
+										if (value) {
+											struct exprvalue	exprvalue = {0};
+
+											if (parse_constant_value (unit, value, &exprvalue)) {
+												expr->type = ExprType (constant);
+												expr->constant = exprvalue;
+												init_typestack (typestack);
+												push_basictype_to_typestack (typestack, expr->constant.type, 0);
+												result = 1;
+											} else {
+												result = 0;
+											}
+										} else {
+											Link_Error (unit, "undeclared option '%s'", right_expr->iden.name);
+											result = 0;
+										}
+									} else {
+										Link_Error (unit, "no options are declared in this unit");
+										result = 0;
+									}
+								} else {
+									Link_Error (unit, "parameter of %s must be an identifier", g_builtin[decl->define.builtin.type]);
+									result = 0;
+								}
+							} else {
+								Unreachable ();
+							}
+						}
 					} else {
 						Unreachable ();
 					}
@@ -1746,6 +1847,64 @@ int		link_decl_func (struct unit *unit, uint scope_index, uint decl_index) {
 	return (result);
 }
 
+int		link_enum_table (struct unit *unit, uint scope_index, uint params) {
+	int				result;
+	struct scope	*scope;
+	uint			decl_index;
+
+	scope = get_scope (unit, scope_index);
+	Assert (scope->param_scope);
+	scope = get_scope (unit, scope->param_scope);
+	Assert (scope->decl_begin);
+	decl_index = scope->decl_begin;
+	if (decl_index && params) {
+		do {
+			struct expr			*expr;
+			struct decl			*decl;
+			struct typestack	typestack = {0};
+
+			expr = get_expr (unit, params);
+			Assert (expr->type == ExprType (funcparam));
+			Assert (expr->funcparam.expr);
+			decl = get_decl (unit, decl_index);
+			Assert (decl->kind == DeclKind (param));
+			Assert (decl->type);
+			init_typestack (&typestack);
+			if (link_expr (unit, scope_index, expr->funcparam.expr, 1, &typestack)) {
+				struct typestack	leftstack = {0};
+
+				init_typestack (&leftstack);
+				push_typestack_recursive (unit, unit, &leftstack, decl->type);
+				if (is_typestacks_compatible (&leftstack, &typestack, 0)) {
+					result = 1;
+				} else {
+					Link_Error (unit, "types are not compatible in enum table");
+					print_left_right_typestacks (unit, &leftstack, &typestack);
+				}
+			} else {
+				result = 0;
+			}
+			decl_index = decl->next;
+			params = expr->funcparam.next;
+		} while (result && decl_index && params);
+		if (result) {
+			if (decl_index) {
+				Link_Error (unit, "too few arguments for enum table");
+				result = 0;
+			} else if (params) {
+				Link_Error (unit, "too many arguments for enum table");
+				result = 0;
+			} else {
+				result = 1;
+			}
+		}
+	} else {
+		Link_Error (unit, "too few arguments for enum table");
+		result = 0;
+	}
+	return (result);
+}
+
 int		link_enum_scope_flow (struct unit *unit, uint scope_index, uint flow_index) {
 	int			result;
 	struct flow	*flow;
@@ -1765,14 +1924,23 @@ int		link_enum_scope_flow (struct unit *unit, uint scope_index, uint flow_index)
 				decl->is_in_process = 1;
 				init_typestack (&typestack);
 				result = link_expr (unit, scope_index, decl->enumt.expr, 1, &typestack);
-				/* todo: check if type is ok for enum */
+				if (get_typestack_head (&typestack)->kind == TypeKind (basic) && is_basictype_integral (get_typestack_head (&typestack)->basic.type)) {
+					result = 1;
+				} else {
+					Link_Error (unit, "enum constant has non-integral value");
+					result = 0;
+				}
 				decl->is_in_process = 0;
 			} else {
 				Link_Error (unit, "self referencing");
 				result = 0;
 			}
+		} else if (get_scope (unit, scope_index)->param_scope) {
+			result = link_enum_table (unit, scope_index, decl->enumt.params);
+		} else if (decl->enumt.params) {
+			Link_Error (unit, "enum constant declaration has parameters when the scope doesn't have any");
+			result = 0;
 		} else {
-			/* todo: link enum table */
 			result = 1;
 		}
 	} else {
@@ -2107,6 +2275,72 @@ int		link_decl_type (struct unit *unit, uint scope_index, uint decl_index) {
 	return (result);
 }
 
+int		link_decl_assert (struct unit *unit, uint scope_index, uint decl_index) {
+	int					result;
+	struct decl			*decl;
+	struct typestack	typestack = {0};
+
+	push_decl_path (unit, decl_index);
+	decl = get_decl (unit, decl_index);
+	init_typestack (&typestack);
+	decl->is_in_process = 1;
+	if (link_expr (unit, scope_index, decl->define.assert.expr, 1, &typestack)) {
+		struct evalvalue	value = {0};
+
+		decl->is_in_process = 0;
+		decl->is_linked = 1;
+		if (eval_const_expr (unit, decl->define.assert.expr, &value)) {
+			if (value.type == EvalType (basic)) {
+				if (is_basictype_integral (value.basic)) {
+					if (value.uvalue) {
+						result = 1;
+					} else {
+						Link_Error (unit, "Assertion failed");
+						fprintf (stderr, "Asserted expression: ");
+						print_expr (unit, decl->define.assert.expr, stderr);
+						fprintf (stderr, "\n");
+						result = 0;
+					}
+				} else {
+					Link_Error (unit, "assert condition has non-intergal basic type");
+					result = 0;
+				}
+			} else if (value.type == EvalType (string)) {
+				if (value.string) {
+					result = 1;
+				} else {
+					Link_Error (unit, "assertion failed");
+					result = 0;
+				}
+			} else if (value.type == EvalType (typeinfo_pointer)) {
+				if (value.typeinfo_index) {
+					result = 1;
+				} else {
+					Link_Error (unit, "assertion failed");
+					result = 0;
+				}
+			} else if (value.type == EvalType (typemember_pointer)) {
+				if (value.typemember_index) {
+					result = 1;
+				} else {
+					Link_Error (unit, "assertion failed");
+					result = 0;
+				}
+			} else {
+				Link_Error (unit, "assert condition has non-intergal basic type");
+				result = 0;
+			}
+		} else {
+			Link_Error (unit, "cannot evaluate constant expression");
+			result = 0;
+		}
+	} else {
+		result = 0;
+	}
+	pop_path (unit);
+	return (result);
+}
+
 int		link_decl (struct unit *unit, uint scope_index, uint decl_index) {
 	int			result;
 	struct decl	*decl;
@@ -2139,6 +2373,8 @@ int		link_decl (struct unit *unit, uint scope_index, uint decl_index) {
 				result = 1;
 			} else if (decl->define.kind == DefineKind (builtin)) {
 				result = 1;
+			} else if (decl->define.kind == DefineKind (assert)) {
+				result = link_decl_assert (unit, scope_index, decl_index);
 			} else {
 				Unreachable ();
 			}

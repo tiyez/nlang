@@ -425,6 +425,20 @@ uint	make_define_builtin_decl (struct unit *unit, uint scope_index, enum builtin
 	return (index);
 }
 
+uint	make_define_assert_decl (struct unit *unit, uint scope_index, uint expr, int line) {
+	uint	index;
+
+	index = make_decl (unit, scope_index, 0, 0, DeclKind (define), line);
+	if (index) {
+		struct decl	*decl;
+
+		decl = get_decl (unit, index);
+		decl->define.kind = DefineKind (assert);
+		decl->define.assert.expr = expr;
+	}
+	return (index);
+}
+
 void	add_flow_to_scope (struct unit *unit, uint scope_index, uint flow_index) {
 	struct scope	*scope;
 
@@ -755,6 +769,7 @@ int		parse_tag_decl_flow (struct unit *unit, enum tagtype tagtype, uint scope_in
 					decl = make_tag_decl (unit, scope_index, name, type_index, tagtype, scope, line);
 					get_decl (unit, decl)->tag.param_scope = param_scope;
 					get_scope (unit, scope)->type_index = type_index;
+					get_scope (unit, scope)->param_scope = param_scope;
 					get_type (unit, type_index)->tag.decl = decl;
 					*out = make_decl_flow (unit, decl, line);
 					*ptokens = next_token (*ptokens, &unit->pos);
@@ -1074,6 +1089,33 @@ int		parse_builtin_decl_flow (struct unit *unit, uint scope_index, char **ptoken
 		}
 	} else {
 		Parse_Error (*ptokens, unit->pos, "unexpected token");
+		result = 0;
+	}
+	return (result);
+}
+
+int		parse_assert_decl_flow (struct unit *unit, uint scope_index, char **ptokens, uint *out) {
+	int			result;
+	const char	*name;
+	int			line;
+	uint		expr;
+
+	Assert (is_token (*ptokens, Token (identifier), "assert"));
+	line = unit->pos.line;
+	*ptokens = next_token (*ptokens, &unit->pos);
+	if (parse_expr (unit, ptokens, &expr)) {
+		if (is_token (*ptokens, Token (punctuator), ";")) {
+			uint	decl;
+
+			decl = make_define_assert_decl (unit, scope_index, expr, line);
+			*out = make_decl_flow (unit, decl, line);
+			*ptokens = next_token (*ptokens, &unit->pos);
+			result = 1;
+		} else {
+			Parse_Error (*ptokens, unit->pos, "unrecognized token");
+			result = 0;
+		}
+	} else {
 		result = 0;
 	}
 	return (result);
@@ -1737,6 +1779,8 @@ int		parse_unit_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 			result = parse_funcprefix_decl_flow (unit, scope_index, ptokens, out);
 		} else if (0 == strcmp (*ptokens, "builtin")) {
 			result = parse_builtin_decl_flow (unit, scope_index, ptokens, out);
+		} else if (0 == strcmp (*ptokens, "assert")) {
+			result = parse_assert_decl_flow (unit, scope_index, ptokens, out);
 		} else if (0 == strcmp (*ptokens, "manifest")) {
 			if (unit->flags[Flag (entry)]) {
 				result = parse_manifest_decl_flow (unit, scope_index, ptokens, out);

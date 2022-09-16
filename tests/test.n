@@ -16,6 +16,9 @@
 //		"source1.n";
 //		"source2.n";
 //	}
+	options {
+		test 3;
+	}
 }
 
 
@@ -122,6 +125,8 @@ enum server_error (message *const char, message_ru *const char) {
 }
 #accessor Server_Error enum server_error;
 
+#assert 1;
+
 #funcprefix main "__cdecl";
 main int (argc int, argv (*char)[]) {
 	var index			int;
@@ -141,6 +146,10 @@ main int (argc int, argv (*char)[]) {
 		index = 1;
 	}
 	printf ("index: %d\n", index);
+	printf ("option (test): %d", __Option (test));
+	printf ("flag (unit_index): %d", __Flag (unit_index));
+	printf ("is windows: %d", __Platform (windows));
+	printf ("is linux: %d", __Platform (linux));
 	member = hello_members;
 	while is_member (member) {
 		printf ("member: %s\n", member->name);

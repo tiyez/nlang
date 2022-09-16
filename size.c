@@ -909,7 +909,8 @@ int		size_decl (struct unit *unit, uint decl_index, int is_global) {
 						result = 0;
 					}
 				} else if (decl->define.kind == DefineKind (macro) || decl->define.kind == DefineKind (type) || decl->define.kind == DefineKind (visability) ||
-					decl->define.kind == DefineKind (funcprefix) || decl->define.kind == DefineKind (builtin) || decl->define.kind == DefineKind (accessor)) {
+					decl->define.kind == DefineKind (funcprefix) || decl->define.kind == DefineKind (builtin) || decl->define.kind == DefineKind (accessor) ||
+					decl->define.kind == DefineKind (assert)) {
 					result = 1;
 				} else {
 					Unreachable ();
