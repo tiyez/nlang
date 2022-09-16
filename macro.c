@@ -208,6 +208,66 @@ int		link_macro_scope_flow (struct unit *unit, uint eval_scope_index, uint scope
 				result = 0;
 			}
 		}
+	} else if (flow->type == FlowType (constif)) {
+		struct typestack	condstack;
+
+		init_typestack (&condstack);
+		if (link_expr (unit, scope_index, flow->constif.expr, 0, &condstack)) {
+			struct evalvalue	value = {0};
+
+			/* check if type is ok for if statement */
+			if (eval_const_expr (unit, flow->constif.expr, &value)) {
+				int		is_true;
+
+				if (value.type == EvalType (basic)) {
+					if (is_basictype_integral (value.basic)) {
+						if (is_basictype_signed (value.basic)) {
+							is_true = value.value != 0;
+						} else {
+							is_true = value.uvalue != 0;
+						}
+						result = 1;
+					} else if (value.basic == BasicType (void)) {
+						Link_Error (unit, "value for constif condition has void type");
+						result = 0;
+					} else {
+						Link_Error (unit, "cannot convert floating point number to boolean in constif condition");
+						result = 0;
+					}
+				} else if (value.type == EvalType (string)) {
+					is_true = value.string != 0;
+					result = 1;
+				} else if (value.type == EvalType (typeinfo_pointer)) {
+					is_true = value.typeinfo_index != 0;
+					result = 1;
+				} else if (value.type == EvalType (typemember_pointer)) {
+					is_true = value.typemember_index != 0;
+					result = 1;
+				} else {
+					Link_Error (unit, "invalid value for constif condition");
+					result = 0;
+				}
+				if (result) {
+					uint	next;
+
+					next = flow->next;
+					if (is_true) {
+						*flow = *get_flow (unit, flow->constif.flow_body);
+						flow->next = next;
+						result = link_macro_scope_flow (unit, eval_scope_index, scope_index, flow_index, typestack);
+					} else {
+						*flow = *get_flow (unit, flow->constif.else_body);
+						flow->next = next;
+						result = link_macro_scope_flow (unit, eval_scope_index, scope_index, flow_index, typestack);
+					}
+				}
+			} else {
+				Link_Error (unit, "cannot evaluate constant expression");
+				result = 0;
+			}
+		} else {
+			result = 0;
+		}
 	} else if (flow->type == FlowType (block)) {
 		result = link_macro_scope (unit, eval_scope_index, flow->block.scope, typestack);
 	} else if (flow->type == FlowType (expr)) {
@@ -324,8 +384,10 @@ int		link_macro_eval (struct unit *unit, uint scope_index, uint decl_index, uint
 
 int		parse_macro_decl_flow (struct unit *unit, uint scope_index, char **ptokens, uint *out) {
 	int		result;
+	int		line;
 
 	Assert (is_token (*ptokens, Token (identifier), "macro"));
+	line = unit->pos.line;
 	*ptokens = next_token (*ptokens, &unit->pos);
 	if ((*ptokens)[-1] == Token (identifier)) {
 		const char	*name;
@@ -345,7 +407,7 @@ int		parse_macro_decl_flow (struct unit *unit, uint scope_index, char **ptokens,
 
 					name = *ptokens;
 					*ptokens = next_token (*ptokens, &unit->pos);
-					make_param_decl (unit, param_scope_index, name, 0);
+					make_param_decl (unit, param_scope_index, name, 0, line);
 					if (is_token (*ptokens, Token (punctuator), ")")) {
 						is_continue = 0;
 						result = 1;
@@ -357,7 +419,7 @@ int		parse_macro_decl_flow (struct unit *unit, uint scope_index, char **ptokens,
 					}
 				} else if (is_token (*ptokens, Token (punctuator), "...")) {
 					*ptokens = next_token (*ptokens, &unit->pos);
-					make_param_decl (unit, param_scope_index, "...", 0);
+					make_param_decl (unit, param_scope_index, "...", 0, line);
 					if (is_token (*ptokens, Token (punctuator), ")")) {
 						is_continue = 0;
 						result = 1;
@@ -382,12 +444,12 @@ int		parse_macro_decl_flow (struct unit *unit, uint scope_index, char **ptokens,
 
 					*ptokens = next_token (*ptokens, &unit->pos);
 					code_scope = make_scope (unit, ScopeKind (macro), scope_index);
-					macro_decl = make_define_macro_decl (unit, scope_index, name, code_scope, param_scope_index);
+					macro_decl = make_define_macro_decl (unit, scope_index, name, code_scope, param_scope_index, line);
 					get_scope (unit, code_scope)->param_scope = param_scope_index;
 					if (parse_scope (unit, code_scope, ptokens)) {
 						if (is_token (*ptokens, Token (punctuator), "}")) {
 							*ptokens = next_token (*ptokens, &unit->pos);
-							*out = make_decl_flow (unit, macro_decl);
+							*out = make_decl_flow (unit, macro_decl, line);
 							result = 1;
 						} else {
 							Parse_Error (*ptokens, unit->pos, "unexpected token %d[%s]", (*ptokens)[-1], *ptokens);
@@ -414,7 +476,9 @@ int		parse_macro_decl_flow (struct unit *unit, uint scope_index, char **ptokens,
 
 int		parse_macro_scope_flow (struct unit *unit, uint scope_index, char **ptokens, uint *out) {
 	int		result;
+	int		line;
 
+	line = unit->pos.line;
 	if (is_token (*ptokens, Token (identifier), "if")) {
 		uint	expr;
 
@@ -429,7 +493,40 @@ int		parse_macro_scope_flow (struct unit *unit, uint scope_index, char **ptokens
 
 						*ptokens = next_token (*ptokens, &unit->pos);
 						if (parse_macro_scope_flow (unit, scope_index, ptokens, &else_body)) {
-							*out = make_if_flow (unit, expr, body, else_body);
+							*out = make_if_flow (unit, expr, body, else_body, line);
+							result = 1;
+						} else {
+							result = 0;
+						}
+					} else {
+						Parse_Error (*ptokens, unit->pos, "'else' branch for macro condition is mandatory");
+						result = 0;
+					}
+				} else {
+					result = 0;
+				}
+			} else {
+				Parse_Error (*ptokens, unit->pos, "empty condition");
+				result = 0;
+			}
+		} else {
+			result = 0;
+		}
+	} else if (is_token (*ptokens, Token (identifier), "constif")) {
+		uint	expr;
+
+		*ptokens = next_token (*ptokens, &unit->pos);
+		if (parse_expr (unit, ptokens, &expr)) {
+			if (expr) {
+				uint	body;
+
+				if (parse_macro_scope_flow (unit, scope_index, ptokens, &body)) {
+					if (is_token (*ptokens, Token (identifier), "else")) {
+						uint	else_body;
+
+						*ptokens = next_token (*ptokens, &unit->pos);
+						if (parse_macro_scope_flow (unit, scope_index, ptokens, &else_body)) {
+							*out = make_constif_flow (unit, expr, body, else_body, line);
 							result = 1;
 						} else {
 							result = 0;
@@ -454,7 +551,7 @@ int		parse_macro_scope_flow (struct unit *unit, uint scope_index, char **ptokens
 		*ptokens = next_token (*ptokens, &unit->pos);
 		inner_scope = make_scope (unit, ScopeKind (macro), scope_index);
 		get_scope (unit, inner_scope)->param_scope = get_scope (unit, scope_index)->param_scope;
-		*out = make_block_flow (unit, inner_scope);
+		*out = make_block_flow (unit, inner_scope, line);
 		if (parse_scope (unit, inner_scope, ptokens)) {
 			if (is_token (*ptokens, Token (punctuator), "}")) {
 				if (get_scope (unit, inner_scope)->flow_begin) {
@@ -477,7 +574,7 @@ int		parse_macro_scope_flow (struct unit *unit, uint scope_index, char **ptokens
 		if (parse_expr (unit, ptokens, &expr)) {
 			if (is_token (*ptokens, Token (punctuator), ";")) {
 				if (expr) {
-					*out = make_expr_flow (unit, expr);
+					*out = make_expr_flow (unit, expr, line);
 					*ptokens = next_token (*ptokens, &unit->pos);
 					result = 1;
 				} else {

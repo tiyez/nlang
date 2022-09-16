@@ -94,7 +94,7 @@ const Assert2 = Assert;
 const Hello2 = Hello;
 
 #macro Error (...) {
-	printf ("%s:%s: ", __Filename, __Function);
+	printf ("%s:%s:%d: ", __Filename, __Function, __Line);
 	printf (...);
 	printf ("\n");
 }
@@ -135,7 +135,12 @@ main int (argc int, argv (*char)[]) {
 	pi = Pi;
 //	Nested_Assert () (1 != 1);
 	Assert2 (1 == 1);
-	index = 0;
+	constif 0 {
+		index = 0;
+	} else {
+		index = 1;
+	}
+	printf ("index: %d\n", index);
 	member = hello_members;
 	while is_member (member) {
 		printf ("member: %s\n", member->name);

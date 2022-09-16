@@ -1,6 +1,6 @@
 
 
-int		size_tag_scope (struct unit *unit, uint scope_index, struct sizevalue *value);
+int		size_decl (struct unit *unit, uint decl_index, int is_global);
 
 int		size_type (struct unit *unit, uint type_index, struct sizevalue *value) {
 	int			result;
@@ -9,55 +9,61 @@ int		size_type (struct unit *unit, uint type_index, struct sizevalue *value) {
 	type = get_type (unit, type_index);
 	//Debug ("size type start %s", g_typekind[type->kind]);
 	if (type->kind == TypeKind (basic)) {
-		value->size = get_basictype_size (type->basic.type);
-		value->alignment = value->size;
-		result = 1;
-	} else if (type->kind == TypeKind (tag)) {
-		struct unit	*unit_decl;
-		struct decl	*decl;
-
-		Assert (type->tag.decl);
-		if (is_lib_index (type->tag.decl)) {
-			unit_decl = get_lib (get_lib_index (type->tag.decl));
-		} else {
-			unit_decl = unit;
-		}
-		decl = get_decl (unit_decl, unlib_index (type->tag.decl));
-		Assert (decl->kind == DeclKind (tag));
-		if (decl->size) {
-			value->size = decl->size;
-			value->alignment = 4;
+		if (value) {
+			value->size = get_basictype_size (type->basic.type);
+			value->alignment = value->size;
 			result = 1;
 		} else {
-			if (!decl->is_in_process) {
-				decl->is_in_process = 1;
-				if (size_tag_scope (unit_decl, decl->tag.scope, value)) {
-					decl->is_in_process = 0;
-					decl->size = value->size;
+			result = 1;
+		}
+	} else if (type->kind == TypeKind (tag)) {
+		if (value) {
+			struct unit	*unit_decl;
+			struct decl	*decl;
+
+			Assert (type->tag.decl);
+			if (is_lib_index (type->tag.decl)) {
+				unit_decl = get_lib (get_lib_index (type->tag.decl));
+			} else {
+				unit_decl = unit;
+			}
+			decl = get_decl (unit_decl, unlib_index (type->tag.decl));
+			Assert (decl->kind == DeclKind (tag));
+			if (!decl->is_sized) {
+				if (size_decl (unit_decl, unlib_index (type->tag.decl), 0)) {
+					value->size = decl->size;
+					value->alignment = decl->alignment;
 					result = 1;
 				} else {
-					decl->is_in_process = 0;
 					result = 0;
 				}
 			} else {
+				value->size = decl->size;
+				value->alignment = decl->alignment;
 				result = 1;
 			}
+		} else {
+			result = 1;
 		}
 	} else if (type->kind == TypeKind (mod)) {
 		if (type->mod.kind == TypeMod (pointer)) {
-			if (size_type (unit, type->mod.forward, value)) {
-				if (unit->flags[Flag (build32)]) {
-					value->size = 4;
-				} else {
-					value->size = 8;
+			if (size_type (unit, type->mod.forward, 0)) {
+				if (value) {
+					if (unit->flags[Flag (build32)]) {
+						value->size = 4;
+					} else {
+						value->size = 8;
+					}
+					value->alignment = value->size;
 				}
-				value->alignment = value->size;
 				result = 1;
 			} else {
 				result = 0;
 			}
 		} else if (type->mod.kind == TypeMod (array)) {
-			if (size_type (unit, type->mod.forward, value)) {
+			struct sizevalue	elementsize = {0};
+
+			if (size_type (unit, type->mod.forward, &elementsize)) {
 				if (type->mod.expr) {
 					struct unit			*decl_unit;
 					struct evalvalue	arraysize = {0};
@@ -70,7 +76,11 @@ int		size_type (struct unit *unit, uint type_index, struct sizevalue *value) {
 					if (eval_const_expr (decl_unit, unlib_index (type->mod.expr), &arraysize)) {
 						if (arraysize.type == EvalType (basic) && is_basictype_integral (arraysize.basic)) {
 							if ((is_basictype_signed (arraysize.basic) && arraysize.value > 0) || (is_basictype_unsigned (arraysize.basic) && arraysize.uvalue > 0)) {
-								value->size *= arraysize.uvalue;
+								type->mod.count = arraysize.uvalue;
+								if (value) {
+									value->size = elementsize.size * arraysize.uvalue;
+									value->alignment = elementsize.alignment;
+								}
 								result = 1;
 							} else {
 								Error ("negative or zero size of array");
@@ -84,26 +94,27 @@ int		size_type (struct unit *unit, uint type_index, struct sizevalue *value) {
 						result = 0;
 					}
 				} else {
-					if (unit->flags[Flag (build32)]) {
-						value->size = 4;
-					} else {
-						value->size = 8;
+					type->mod.count = 0;
+					if (value) {
+						if (unit->flags[Flag (build32)]) {
+							value->size = 4;
+						} else {
+							value->size = 8;
+						}
+						value->alignment = value->size;
 					}
-					value->alignment = value->size;
 					result = 1;
 				}
 			} else {
 				result = 0;
 			}
 		} else if (type->mod.kind == TypeMod (function)) {
-			if (size_type (unit, type->mod.forward, value)) {
+			if (size_type (unit, type->mod.forward, 0)) {
 				result = size_param_scope (unit, type->mod.param_scope);
-				if (unit->flags[Flag (build32)]) {
-					value->size = 4;
-				} else {
-					value->size = 8;
+				if (value) {
+					value->size = 1;
+					value->alignment = 1;
 				}
-				value->alignment = value->size;
 			} else {
 				result = 0;
 			}
@@ -111,30 +122,32 @@ int		size_type (struct unit *unit, uint type_index, struct sizevalue *value) {
 			Unreachable ();
 		}
 	} else if (type->kind == TypeKind (internal)) {
-		struct unit	*decl_unit;
-		struct decl	*decl;
+		if (value) {
+			struct unit	*decl_unit;
+			struct decl	*decl;
 
-		if (is_lib_index (type->internal.decl)) {
-			decl_unit = get_lib (get_lib_index (type->internal.decl));
-		} else {
-			decl_unit = unit;
-		}
-		decl = get_decl (decl_unit, unlib_index (type->internal.decl));
-		Assert (decl->kind == DeclKind (define));
-		if (decl->define.kind == DefineKind (external)) {
-			if (size_type (decl_unit, decl->type, value)) {
-				result = 1;
+			if (is_lib_index (type->internal.decl)) {
+				decl_unit = get_lib (get_lib_index (type->internal.decl));
 			} else {
-				result = 0;
+				decl_unit = unit;
 			}
-		} else if (decl->define.kind == DefineKind (type)) {
-			if (size_type (decl_unit, decl->type, value)) {
-				result = 1;
+			decl = get_decl (decl_unit, unlib_index (type->internal.decl));
+			Assert (decl->kind == DeclKind (define) && decl->define.kind == DefineKind (external));
+			if (!decl->is_sized) {
+				if (size_decl (decl_unit, unlib_index (type->internal.decl), 0)) {
+					value->size = decl->size;
+					value->alignment = decl->alignment;
+					result = 1;
+				} else {
+					result = 0;
+				}
 			} else {
-				result = 0;
+				value->size = decl->size;
+				value->alignment = decl->alignment;
+				result = 1;
 			}
 		} else {
-			Unreachable ();
+			result = 1;
 		}
 	} else {
 		Unreachable ();
@@ -345,6 +358,81 @@ int		size_typeinfo (struct unit *unit, uint typeinfo_index) {
 	return (result);
 }
 
+int		size_typestack (struct unit *unit, struct typestack *typestack, struct sizevalue *value) {
+	int			result;
+	struct type	*type;
+
+	type = get_typestack_head (typestack);
+	Assert (type);
+	Assert (value);
+	if (type->kind == TypeKind (basic)) {
+		value->size = get_basictype_size (type->basic.type);
+		value->alignment = value->size;
+		result = 1;
+	} else if (type->kind == TypeKind (tag)) {
+		struct decl	*decl;
+		struct unit	*decl_unit;
+
+		Assert (type->tag.decl);
+		if (is_lib_index (type->tag.decl)) {
+			decl_unit = get_lib (get_lib_index (type->tag.decl));
+		} else {
+			decl_unit = unit;
+		}
+		decl = get_decl (decl_unit, unlib_index (type->tag.decl));
+		Assert (decl->is_sized);
+		value->size = decl->size;
+		value->alignment = decl->alignment;
+		result = 1;
+	} else if (type->kind == TypeKind (mod)) {
+		if (type->mod.kind == TypeMod (pointer)) {
+			if (unit->flags[Flag (build32)]) {
+				value->size = 4;
+			} else {
+				value->size = 8;
+			}
+			value->alignment = value->size;
+			result = 1;
+		} else if (type->mod.kind == TypeMod (array)) {
+			struct type			head = {0};
+			struct sizevalue	elementsize = {0};
+
+			head = *type;
+			pop_typestack (typestack);
+			if (size_typestack (unit, typestack, &elementsize)) {
+				push_typestack (typestack, &head);
+				value->size = head.mod.count * elementsize.size;
+				value->alignment = elementsize.alignment;
+				result = 1;
+			} else {
+				result = 0;
+			}
+		} else if (type->mod.kind == TypeMod (function)) {
+			value->size = 1;
+			value->alignment = 1;
+			result = 1;
+		}
+	} else if (type->kind == TypeKind (internal)) {
+		struct unit	*decl_unit;
+		struct decl	*decl;
+
+		if (is_lib_index (type->internal.decl)) {
+			decl_unit = get_lib (get_lib_index (type->internal.decl));
+		} else {
+			decl_unit = unit;
+		}
+		decl = get_decl (decl_unit, unlib_index (type->internal.decl));
+		Assert (decl->kind == DeclKind (define) && decl->define.kind == DefineKind (external));
+		Assert (decl->is_sized);
+		value->size = decl->size;
+		value->alignment = decl->alignment;
+		result = 1;
+	} else {
+		Unreachable ();
+	}
+	return (result);
+}
+
 int		size_expr (struct unit *unit, int expr_index, struct typestack *typestack) {
 	int			result;
 	struct expr	*expr;
@@ -415,6 +503,34 @@ int		size_expr (struct unit *unit, int expr_index, struct typestack *typestack) 
 			} else {
 				result = 0;
 			}
+		} else if (expr->op.type == OpType (sizeof) || expr->op.type == OpType (alignof)) {
+			int		old_sizeof_context;
+
+			old_sizeof_context = typestack->is_sizeof_context;
+			typestack->is_sizeof_context = 1;
+			if (size_expr (unit, expr->op.forward, typestack)) {
+				struct sizevalue	value = {0};
+
+				typestack->is_sizeof_context = old_sizeof_context;
+				if (size_typestack (unit, typestack, &value)) {
+					enum optype	optype;
+
+					optype = expr->op.type;
+					expr->type = ExprType (constant);
+					expr->constant.type = BasicType (usize);
+					if (optype == OpType (sizeof)) {
+						expr->constant.uvalue = value.size;
+					} else {
+						expr->constant.uvalue = value.alignment;
+					}
+					update_typestack (unit, expr, typestack, 0);
+					result = 1;
+				} else {
+					result = 0;
+				}
+			} else {
+				result = 0;
+			}
 		} else {
 			if (is_expr_unary (expr)) {
 				if (size_expr (unit, expr->op.forward, typestack)) {
@@ -462,6 +578,53 @@ int		size_expr (struct unit *unit, int expr_index, struct typestack *typestack) 
 	} else if (expr->type == ExprType (macrocall)) {
 		Assert (expr->macrocall.instance);
 		result = size_macro_instance (unit, expr->macrocall.instance, typestack);
+	} else if (expr->type == ExprType (identifier)) {
+		struct decl	*decl;
+		struct unit	*decl_unit;
+
+		Assert (expr->iden.decl);
+		if (is_lib_index (expr->iden.decl)) {
+			decl_unit = get_lib (get_lib_index (expr->iden.decl));
+		} else {
+			decl_unit = unit;
+		}
+		decl = get_decl (decl_unit, unlib_index (expr->iden.decl));
+		if (!decl->is_sized) {
+			if (size_decl (decl_unit, unlib_index (expr->iden.decl), 0)) {
+				push_typestack_recursive (unit, decl_unit, typestack, decl->type);
+				typestack->value = ValueCategory (lvalue);
+				result = 1;
+			} else {
+				result = 0;
+			}
+		} else {
+			init_typestack (typestack);
+			push_typestack_recursive (unit, decl_unit, typestack, decl->type);
+			result = 1;
+		}
+		if (result) {
+			struct type	*left;
+
+			left = get_typestack_head (typestack);
+			if (left->kind == TypeKind (mod) && left->mod.kind == TypeMod (function)) {
+				Assert (decl->kind == DeclKind (func) || decl->kind == DeclKind (define));
+				push_pointer_type_to_typestack (typestack, 0);
+				typestack->value = ValueCategory (rvalue);
+			} else if (left->kind == TypeKind (mod) && left->mod.kind == TypeMod (array)) {
+				if (typestack->is_sizeof_context) {
+					typestack->value = ValueCategory (lvalue);
+				} else {
+					left->mod.kind = TypeMod (pointer);
+					typestack->value = ValueCategory (rvalue);
+				}
+			} else {
+				if (left->kind == TypeKind (tag) && left->tag.type == TagType (enum)) {
+					init_typestack (typestack);
+					push_basictype_to_typestack (typestack, BasicType (int), 0);
+				}
+				typestack->value = ValueCategory (lvalue);
+			}
+		}
 	} else {
 		update_typestack (unit, expr, typestack, 0);
 		result = 1;
@@ -477,9 +640,14 @@ int		size_tag_scope (struct unit *unit, uint scope_index, struct sizevalue *valu
 
 	//Debug ("size tag scope start");
 	offset = 0;
-	value->size = 0;
-	value->alignment = 4;
 	scope = get_scope (unit, scope_index);
+	if (scope->tagtype == TagType (enum)) {
+		value->size = 4;
+		value->alignment = 4;
+	} else {
+		value->size = 0;
+		value->alignment = 0;
+	}
 	Assert (scope->kind == ScopeKind (tag));
 	if (scope->decl_begin) {
 		struct decl	*decl;
@@ -492,7 +660,6 @@ int		size_tag_scope (struct unit *unit, uint scope_index, struct sizevalue *valu
 
 					init_typestack (&typestack);
 					result = size_expr (unit, decl->enumt.expr, &typestack);
-					value->size = 4;
 				} else {
 					result = 1;
 				}
@@ -504,13 +671,18 @@ int		size_tag_scope (struct unit *unit, uint scope_index, struct sizevalue *valu
 						decl->is_in_process = 1;
 						if (size_tag_scope (unit, decl->block.scope, &blocksize)) {
 							decl->is_in_process = 0;
+							decl->is_sized = 1;
 							decl->size = blocksize.size;
+							decl->alignment = blocksize.alignment;
 							Assert (blocksize.alignment > 0);
 							if (offset % blocksize.alignment) {
 								offset += blocksize.alignment - (offset % blocksize.alignment);
 							}
 							decl->offset = offset;
 							offset += blocksize.size;
+							if (blocksize.alignment > value->alignment) {
+								value->alignment = blocksize.alignment;
+							}
 							result = 1;
 						} else {
 							decl->is_in_process = 0;
@@ -531,6 +703,9 @@ int		size_tag_scope (struct unit *unit, uint scope_index, struct sizevalue *valu
 						}
 						decl->offset = offset;
 						offset += membervalue.size;
+						if (membervalue.alignment > value->alignment) {
+							value->alignment = membervalue.alignment;
+						}
 						result = 1;
 					} else {
 						result = 0;
@@ -545,7 +720,7 @@ int		size_tag_scope (struct unit *unit, uint scope_index, struct sizevalue *valu
 				decl = 0;
 			}
 		} while (result && decl);
-		if (result) {
+		if (result && scope->tagtype != TagType (enum)) {
 			if (offset % value->alignment) {
 				offset += value->alignment - (offset % value->alignment);
 			}
@@ -558,8 +733,6 @@ int		size_tag_scope (struct unit *unit, uint scope_index, struct sizevalue *valu
 	return (result);
 }
 
-int		size_decl (struct unit *unit, uint decl_index);
-
 int		size_flow (struct unit *unit, uint flow_index, struct typestack *typestack) {
 	int			result;
 	struct flow	*flow;
@@ -567,7 +740,7 @@ int		size_flow (struct unit *unit, uint flow_index, struct typestack *typestack)
 	//Debug ("size flow start");
 	flow = get_flow (unit, flow_index);
 	if (flow->type == FlowType (decl)) {
-		result = size_decl (unit, flow->decl.index);
+		result = size_decl (unit, flow->decl.index, 0);
 	} else if (flow->type == FlowType (expr)) {
 		result = size_expr (unit, flow->expr.index, typestack);
 	} else if (flow->type == FlowType (block)) {
@@ -646,7 +819,7 @@ int		size_param_scope (struct unit *unit, uint scope_index) {
 
 		decl_index = scope->decl_begin;
 		do {
-			result = size_decl (unit, decl_index);
+			result = size_decl (unit, decl_index, 0);
 			decl_index = get_decl (unit, decl_index)->next;
 		} while (result && decl_index);
 	} else {
@@ -656,92 +829,143 @@ int		size_param_scope (struct unit *unit, uint scope_index) {
 	return (result);
 }
 
-int		size_decl (struct unit *unit, uint decl_index) {
+int		size_decl (struct unit *unit, uint decl_index, int is_global) {
 	int			result;
 	struct decl	*decl;
 
 	//Debug ("size decl start");
 	decl = get_decl (unit, decl_index);
-	if (decl->kind == DeclKind (var)) {
-		struct sizevalue	value = {0};
+	if (!decl->is_in_process) {
+		if (decl->kind == DeclKind (var)) {
+			if (!decl->is_sized) {
+				struct sizevalue	value = {0};
 
-		result = size_type (unit, decl->type, &value);
-	} else if (decl->kind == DeclKind (const)) {
-		result = 1;
-	} else if (decl->kind == DeclKind (tag)) {
-		struct sizevalue	value = {0};
-
-		if (!decl->is_in_process) {
-			decl->is_in_process = 1;
-			if (size_tag_scope (unit, decl->tag.scope, &value)) {
-				decl->is_in_process = 0;
+				decl->is_in_process = 1;
+				result = size_type (unit, decl->type, &value);
 				decl->size = value.size;
-				decl->offset = 0;
-				result = 1;
-			} else {
+				decl->alignment = value.alignment;
 				decl->is_in_process = 0;
-				result = 0;
+				decl->is_sized = 1;
+			} else {
+				result = 1;
 			}
-		} else {
+		} else if (decl->kind == DeclKind (const)) {
+			decl->is_sized = 1;
 			result = 1;
-		}
-	} else if (decl->kind == DeclKind (func)) {
-		struct sizevalue	value = {0};
+		} else if (decl->kind == DeclKind (tag)) {
+			if (!decl->is_sized) {
+				struct sizevalue	value = {0};
 
-		if (size_type (unit, decl->type, &value)) {
+				decl->is_in_process = 1;
+				if (size_tag_scope (unit, decl->tag.scope, &value)) {
+					decl->size = value.size;
+					decl->alignment = value.alignment;
+					decl->offset = 0;
+					result = 1;
+				} else {
+					result = 0;
+				}
+				decl->is_in_process = 0;
+				decl->is_sized = 1;
+			} else {
+				result = 1;
+			}
+		} else if (decl->kind == DeclKind (func)) {
+			struct sizevalue	value = {0};
 			struct typestack	typestack = {0};
 
-			if (size_code_scope (unit, decl->func.scope, &typestack)) {
-				result = 1;
+			if (!decl->is_sized) {
+				decl->is_in_process = 1;
+				if (size_type (unit, decl->type, &value)) {
+					decl->size = value.size;
+					decl->alignment = value.alignment;
+					result = 1;
+				} else {
+					result = 0;
+				}
+				decl->is_in_process = 0;
+				decl->is_sized = 1;
 			} else {
-				result = 0;
+				result = 1;
 			}
-		} else {
-			result = 0;
-		}
-	} else if (decl->kind == DeclKind (define)) {
-		if (decl->define.kind == DefineKind (external)) {
-			struct sizevalue	value = {0};
+			if (result && is_global) {
+				if (size_code_scope (unit, decl->func.scope, &typestack)) {
+					result = 1;
+				} else {
+					result = 0;
+				}
+			}
+		} else if (decl->kind == DeclKind (define)) {
+			if (!decl->is_sized) {
+				decl->is_in_process = 1;
+				if (decl->define.kind == DefineKind (external)) {
+					struct sizevalue	value = {0};
 
-			if (size_type (unit, decl->type, &value)) {
-				result = 1;
+					if (size_type (unit, decl->type, &value)) {
+						decl->size = value.size;
+						decl->alignment = value.alignment;
+						result = 1;
+					} else {
+						result = 0;
+					}
+				} else if (decl->define.kind == DefineKind (macro) || decl->define.kind == DefineKind (type) || decl->define.kind == DefineKind (visability) ||
+					decl->define.kind == DefineKind (funcprefix) || decl->define.kind == DefineKind (builtin) || decl->define.kind == DefineKind (accessor)) {
+					result = 1;
+				} else {
+					Unreachable ();
+				}
+				decl->is_in_process = 0;
+				decl->is_sized = 1;
 			} else {
-				result = 0;
+				result = 1;
 			}
-		} else if (decl->define.kind == DefineKind (macro) || decl->define.kind == DefineKind (type) || decl->define.kind == DefineKind (visability) ||
-			decl->define.kind == DefineKind (funcprefix) || decl->define.kind == DefineKind (builtin) || decl->define.kind == DefineKind (accessor)) {
+		} else if (decl->kind == DeclKind (alias)) {
+			decl->is_sized = 1;
 			result = 1;
+		} else if (decl->kind == DeclKind (block)) {
+			if (!decl->is_sized) {
+				struct sizevalue	value = {0};
+
+				decl->is_in_process = 1;
+				if (size_tag_scope (unit, decl->tag.scope, &value)) {
+					decl->size = value.size;
+					decl->alignment = value.alignment;
+					result = 1;
+				} else {
+					result = 0;
+				}
+				decl->is_in_process = 0;
+				decl->is_sized = 1;
+			} else {
+				result = 1;
+			}
+		} else if (decl->kind == DeclKind (param)) {
+			if (!decl->is_sized) {
+				decl->is_in_process = 1;
+				if (decl->type) {
+					struct sizevalue	value = {0};
+
+					if (size_type (unit, decl->type, &value)) {
+						decl->size = value.size;
+						decl->alignment = value.alignment;
+						result = 1;
+					} else {
+						result = 0;
+					}
+				} else {
+					result = 1;
+				}
+				decl->is_in_process = 0;
+				decl->is_sized = 1;
+			} else {
+				result = 1;
+			}
 		} else {
 			Unreachable ();
 		}
-	} else if (decl->kind == DeclKind (alias)) {
-		result = 1;
-	} else if (decl->kind == DeclKind (block)) {
-		struct sizevalue	value = {0};
-
-		if (!decl->is_in_process) {
-			decl->is_in_process = 1;
-			if (size_tag_scope (unit, decl->tag.scope, &value)) {
-				decl->is_in_process = 0;
-				decl->size = value.size;
-				result = 1;
-			} else {
-				decl->is_in_process = 0;
-				result = 0;
-			}
-		} else {
-			result = 1;
-		}
-	} else if (decl->kind == DeclKind (param)) {
-		if (decl->type) {
-			struct sizevalue	value = {0};
-
-			result = size_type (unit, decl->type, &value);
-		} else {
-			result = 1;
-		}
 	} else {
-		Unreachable ();
+		Error ("self referencing");
+		result = 0;
 	}
 	//Debug ("size decl end");
 	return (result);
@@ -758,7 +982,7 @@ int		size_unit_scope (struct unit *unit, uint scope_index) {
 
 		decl = get_decl (unit, scope->decl_begin);
 		do {
-			result = size_decl (unit, get_decl_index (unit, decl));
+			result = size_decl (unit, get_decl_index (unit, decl), 1);
 			if (decl->next) {
 				decl = get_decl (unit, decl->next);
 			} else {

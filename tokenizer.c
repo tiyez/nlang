@@ -85,6 +85,7 @@ enum token {
 
 struct position {
 	const char	*filename;
+	const char	*filepath;
 	int			line;
 	int			column;
 	int			at_the_beginning;

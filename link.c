@@ -1247,6 +1247,13 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 			push_const_char_pointer_to_typestack (typestack);
 			typestack->value = ValueCategory (rvalue);
 			result = 1;
+		} else if (0 == strcmp (expr->iden.name, "__Line")) {
+			expr->type = ExprType (constant);
+			expr->constant.type = BasicType (int);
+			expr->constant.value = unit->pos.line;
+			push_basictype_to_typestack (typestack, BasicType (int), 0);
+			typestack->value = ValueCategory (rvalue);
+			result = 1;
 		} else {
 			uint64	decl_index;
 			struct decl	*decl;
@@ -1448,10 +1455,9 @@ int		link_type (struct unit *unit, uint scope_index, uint type_index, int is_sel
 			}
 			Assert (decl->kind == DeclKind (define) && decl->define.kind == DefineKind (type));
 			Assert (decl->type);
-			cloned_type = make_type_copy (unit, decl_unit, decl->type);
-			if (link_type (unit, scope_index, cloned_type, is_selfref_check)) {
-				get_type (unit, cloned_type)->flags.is_group = 1;
-				*type = *get_type (unit, cloned_type);
+			replace_type_with_copy (unit, type, decl_unit, decl->type);
+			type->flags.is_group = 1;
+			if (link_type (unit, scope_index, type_index, is_selfref_check)) {
 				result = 1;
 			} else {
 				result = 0;
@@ -1557,6 +1563,7 @@ int		link_code_scope_flow (struct unit *unit, uint scope_index, uint flow_index)
 	init_typestack (&typestack);
 	push_flow_path (unit, scope_index, flow_index);
 	flow = get_flow (unit, flow_index);
+	unit->pos.line = flow->line;
 	if (flow->type == FlowType (decl)) {
 		unit->link_decl_index = flow->decl.index;
 		result = link_decl (unit, scope_index, flow->decl.index);
@@ -1590,6 +1597,72 @@ int		link_code_scope_flow (struct unit *unit, uint scope_index, uint flow_index)
 				result = 0;
 			}
 		}
+	} else if (flow->type == FlowType (constif)) {
+		push_expr_path (unit, flow->constif.expr);
+		if (link_expr (unit, scope_index, flow->constif.expr, 0, &typestack)) {
+			struct evalvalue	value = {0};
+
+			/* check if type is ok for if statement */
+			if (eval_const_expr (unit, flow->constif.expr, &value)) {
+				int		is_true;
+
+				if (value.type == EvalType (basic)) {
+					if (is_basictype_integral (value.basic)) {
+						if (is_basictype_signed (value.basic)) {
+							is_true = value.value != 0;
+						} else {
+							is_true = value.uvalue != 0;
+						}
+						result = 1;
+					} else if (value.basic == BasicType (void)) {
+						Link_Error (unit, "value for constif condition has void type");
+						result = 0;
+					} else {
+						Link_Error (unit, "cannot convert floating point number to boolean in constif condition");
+						result = 0;
+					}
+				} else if (value.type == EvalType (string)) {
+					is_true = value.string != 0;
+					result = 1;
+				} else if (value.type == EvalType (typeinfo_pointer)) {
+					is_true = value.typeinfo_index != 0;
+					result = 1;
+				} else if (value.type == EvalType (typemember_pointer)) {
+					is_true = value.typemember_index != 0;
+					result = 1;
+				} else {
+					Link_Error (unit, "invalid value for constif condition");
+					result = 0;
+				}
+				if (result) {
+					uint	next;
+
+					next = flow->next;
+					if (is_true) {
+						*flow = *get_flow (unit, flow->constif.flow_body);
+						flow->next = next;
+						result = link_code_scope_flow (unit, scope_index, flow_index);
+					} else {
+						if (flow->constif.else_body) {
+							*flow = *get_flow (unit, flow->constif.else_body);
+							flow->next = next;
+							result = link_code_scope_flow (unit, scope_index, flow_index);
+						} else {
+							memset (flow, 0, sizeof *flow);
+							flow->type = FlowType (expr);
+							flow->expr.index = 0;
+							result = 1;
+						}
+					}
+				}
+			} else {
+				Link_Error (unit, "cannot evaluate constant expression");
+				result = 0;
+			}
+		} else {
+			result = 0;
+		}
+		pop_path (unit);
 	} else if (flow->type == FlowType (while)) {
 		push_expr_path (unit, flow->fwhile.expr);
 		if (link_expr (unit, scope_index, flow->fwhile.expr, 0, &typestack)) {
@@ -2093,6 +2166,7 @@ int		link_unit_scope (struct unit *unit, uint scope_index) {
 			flow = get_flow (unit, scope->flow_begin);
 			do {
 				push_flow_path (unit, scope_index, get_flow_index (unit, flow));
+				unit->pos.line = flow->line;
 				if (flow->type == FlowType (decl)) {
 					unit->link_decl_index = flow->decl.index;
 					result = link_decl (unit, scope_index, flow->decl.index);

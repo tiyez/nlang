@@ -30,6 +30,7 @@ int		parse_source (struct unit *unit, char *content, usize size, const char *fil
 		char	*begin;
 
 		init_pos (&unit->pos, filename);
+		unit->pos.filepath = unit->filepath;
 		if (tokens[-1] == Token (newline)) {
 			tokens = next_token (tokens, &unit->pos);
 		}
@@ -631,6 +632,78 @@ void	init_unit (struct unit *unit) {
 	unit->scope = make_scope (unit, ScopeKind (unit), 0);
 }
 
+int		run_test (struct unit *unit, const char *exe_path) {
+	int		result;
+	char	*reffile;
+	char	refpath[256], *ptr;
+	usize	size;
+
+	strcpy (refpath, exe_path);
+	ptr = strrchr (refpath, '\\');
+	if (!ptr) {
+		ptr = refpath;
+	}
+	ptr = strchr (ptr, '.');
+	if (ptr) {
+		strcpy (ptr, ".refout");
+	} else {
+		strcat (refpath, ".refout");
+	}
+	if (PathFileExistsA (refpath)) {
+		reffile = read_entire_file (refpath, &size);
+		if (reffile) {
+			result = 1;
+		} else {
+			Error ("cannot read reference file '%s'", refpath);
+			result = 0;
+		}
+	} else {
+		reffile = 0;
+		result = 1;
+	}
+	if (result) {
+		FILE	*pipe;
+
+		pipe = _popen (exe_path, "rt");
+		if (pipe) {
+			char	*data;
+
+			data = read_file_until_eof (pipe);
+			if (data) {
+				if (reffile) {
+					if (0 == strcmp (data, reffile)) {
+						result = 1;
+					} else {
+						fprintf (stderr, "\nerror: output mismatch\n");
+						fprintf (stderr, "reference:\n%s\n----------------\n", reffile);
+						fprintf (stderr, "output:\n%s\n----------------\n", data);
+						result = 0;
+					}
+				} else {
+					if (write_data_to_file (refpath, data, Get_Array_Count (data))) {
+						result = 1;
+					} else {
+						Error ("cannot write data to reference file");
+						result = 0;
+					}
+				}
+				Free_Array (data);
+			} else {
+				Error ("cannot read from pipe");
+				result = 0;
+			}
+			_pclose (pipe);
+		} else {
+			Error ("cannot launch process '%s'", exe_path);
+			result = 0;
+		}
+		if (reffile) {
+			free (reffile);
+		}
+	}
+	return (result);
+}
+
 int		build_unit (struct unit *unit, const char *entry_filename, const char *include_path, const char *working_path) {
 	int		result;
 	char	*content;
@@ -869,7 +942,24 @@ int		build_unit (struct unit *unit, const char *entry_filename, const char *incl
 									strcat (path, ".c");
 									if (translate_unit_to_c (unit, path)) {
 										if (compile_unit_c (unit, path)) {
-											result = 1;
+											if (g_is_test) {
+												char	*ptr;
+
+												path[0] = 0;
+												strcat (path, working_path);
+												strcat (path, entry_filename);
+												ptr = strrchr (path, '\\');
+												Assert (ptr);
+												ptr = strchr (ptr, '.');
+												strcpy (ptr, ".exe");
+												if (run_test (unit, path)) {
+													result = 1;
+												} else {
+													result = 0;
+												}
+											} else {
+												result = 1;
+											}
 										} else {
 											result = 0;
 										}

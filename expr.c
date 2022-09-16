@@ -480,6 +480,7 @@ uint	make_expr_op_from_token (struct unit *unit, char *token, struct exprstate *
 		cast->type = ExprType (typeinfo);
 		cast->typeinfo.type = type_index;
 		cast->typeinfo.index = 0;
+		cast->typeinfo.lib_index = 0;
 		state->is_post_value = 1;
 		state->is_incomplete = 0;
 		state->last_cast_index = 0;
@@ -870,6 +871,7 @@ int		parse_expr (struct unit *unit, char **ptokens, uint *out) {
 			cast->type = ExprType (typeinfo);
 			cast->typeinfo.type = type_index;
 			cast->typeinfo.index = 0;
+			cast->typeinfo.lib_index = 0;
 			state.result = 1;
 		} else {
 			Parse_Error (*ptokens, unit->pos, "expr parsing is ended with incomplete expr tree");

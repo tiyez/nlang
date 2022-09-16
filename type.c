@@ -203,7 +203,9 @@ void	set_type_cvr (struct unit *unit, uint type_index, struct typestate *state) 
 int		parse_function_param_scope (struct unit *unit, char **ptokens, uint *out_scope, int is_vaarg) {
 	int		is_continue = 1;
 	int		result;
+	int		line;
 
+	line = unit->pos.line;
 	*out_scope = make_scope (unit, ScopeKind (param), 0);
 	result = 1;
 	do {
@@ -215,7 +217,7 @@ int		parse_function_param_scope (struct unit *unit, char **ptokens, uint *out_sc
 			name = *ptokens;
 			*ptokens = next_token (*ptokens, &unit->pos);
 			if (parse_type (unit, ptokens, &type_index)) {
-				make_param_decl (unit, *out_scope, name, type_index);
+				make_param_decl (unit, *out_scope, name, type_index, line);
 				if (is_token (*ptokens, Token (punctuator), ")")) {
 					is_continue = 0;
 				} else if (!is_token (*ptokens, Token (punctuator), ",")) {
@@ -230,7 +232,7 @@ int		parse_function_param_scope (struct unit *unit, char **ptokens, uint *out_sc
 		} else if (is_token (*ptokens, Token (punctuator), ")")) {
 			is_continue = 0;
 		} else if (is_vaarg && is_token (*ptokens, Token (punctuator), "...")) {
-			make_param_decl (unit, *out_scope, "...", 0);
+			make_param_decl (unit, *out_scope, "...", 0, line);
 			*ptokens = next_token (*ptokens, &unit->pos);
 			if (is_token (*ptokens, Token (punctuator), ")")) {
 				is_continue = 0;

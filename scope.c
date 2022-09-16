@@ -65,7 +65,7 @@ uint	get_flow_index (struct unit *unit, struct flow *flow) {
 	return (Get_Bucket_Element_Index (unit->flows, flow));
 }
 
-uint	make_flow (struct unit *unit, enum flowtype type) {
+uint	make_flow (struct unit *unit, enum flowtype type, int line) {
 	uint	index;
 
 	if (Prepare_Bucket (unit->flows, 1)) {
@@ -73,6 +73,7 @@ uint	make_flow (struct unit *unit, enum flowtype type) {
 
 		flow = Push_Bucket (unit->flows);
 		flow->next = 0;
+		flow->line = line;
 		flow->type = type;
 		index = Get_Bucket_Element_Index (unit->flows, flow);
 	} else {
@@ -82,30 +83,30 @@ uint	make_flow (struct unit *unit, enum flowtype type) {
 	return (index);
 }
 
-uint	make_block_flow (struct unit *unit, uint inner_scope) {
+uint	make_block_flow (struct unit *unit, uint inner_scope, int line) {
 	uint	index;
 
-	index = make_flow (unit, FlowType (block));
+	index = make_flow (unit, FlowType (block), line);
 	if (index) {
 		get_flow (unit, index)->block.scope = inner_scope;
 	}
 	return (index);
 }
 
-uint	make_expr_flow (struct unit *unit, uint expr) {
+uint	make_expr_flow (struct unit *unit, uint expr, int line) {
 	uint	index;
 
-	index = make_flow (unit, FlowType (expr));
+	index = make_flow (unit, FlowType (expr), line);
 	if (index) {
 		get_flow (unit, index)->expr.index = expr;
 	}
 	return (index);
 }
 
-uint	make_if_flow (struct unit *unit, uint expr, uint body, uint else_body) {
+uint	make_if_flow (struct unit *unit, uint expr, uint body, uint else_body, int line) {
 	uint	index;
 
-	index = make_flow (unit, FlowType (if));
+	index = make_flow (unit, FlowType (if), line);
 	if (index) {
 		struct flow *flow;
 
@@ -117,10 +118,10 @@ uint	make_if_flow (struct unit *unit, uint expr, uint body, uint else_body) {
 	return (index);
 }
 
-uint	make_constif_flow (struct unit *unit, uint expr, uint body, uint else_body) {
+uint	make_constif_flow (struct unit *unit, uint expr, uint body, uint else_body, int line) {
 	uint		index;
 
-	index = make_flow (unit, FlowType (constif));
+	index = make_flow (unit, FlowType (constif), line);
 	if (index) {
 		struct flow *flow;
 
@@ -132,10 +133,10 @@ uint	make_constif_flow (struct unit *unit, uint expr, uint body, uint else_body)
 	return (index);
 }
 
-uint	make_while_flow (struct unit *unit, uint expr, uint body) {
+uint	make_while_flow (struct unit *unit, uint expr, uint body, int line) {
 	uint	index;
 
-	index = make_flow (unit, FlowType (while));
+	index = make_flow (unit, FlowType (while), line);
 	if (index) {
 		struct flow *flow;
 
@@ -146,10 +147,10 @@ uint	make_while_flow (struct unit *unit, uint expr, uint body) {
 	return (index);
 }
 
-uint	make_dowhile_flow (struct unit *unit, uint expr, uint body) {
+uint	make_dowhile_flow (struct unit *unit, uint expr, uint body, int line) {
 	uint	index;
 
-	index = make_flow (unit, FlowType (dowhile));
+	index = make_flow (unit, FlowType (dowhile), line);
 	if (index) {
 		struct flow *flow;
 
@@ -160,20 +161,20 @@ uint	make_dowhile_flow (struct unit *unit, uint expr, uint body) {
 	return (index);
 }
 
-uint	make_decl_flow (struct unit *unit, uint decl_index) {
+uint	make_decl_flow (struct unit *unit, uint decl_index, int line) {
 	uint	index;
 
-	index = make_flow (unit, FlowType (decl));
+	index = make_flow (unit, FlowType (decl), line);
 	if (index) {
 		get_flow (unit, index)->decl.index = decl_index;
 	}
 	return (index);
 }
 
-uint	make_init_flow (struct unit *unit, enum inittype inittype, uint body) {
+uint	make_init_flow (struct unit *unit, enum inittype inittype, uint body, int line) {
 	uint	index;
 
-	index = make_flow (unit, FlowType (init));
+	index = make_flow (unit, FlowType (init), line);
 	if (index) {
 		struct flow	*flow;
 
@@ -207,7 +208,7 @@ uint64	get_decl_gindex (struct unit *unit, struct unit *decl_unit, struct decl *
 	return (gindex);
 }
 
-uint	make_decl (struct unit *unit, uint scope_index, const char *name, uint type, enum declkind kind) {
+uint	make_decl (struct unit *unit, uint scope_index, const char *name, uint type, enum declkind kind, int line) {
 	uint	index;
 
 	if (Prepare_Bucket (unit->decls, 1)) {
@@ -225,6 +226,7 @@ uint	make_decl (struct unit *unit, uint scope_index, const char *name, uint type
 			decl->is_global = scope->kind == ScopeKind (unit);
 		}
 		decl->next = 0;
+		decl->line = line;
 		decl->name = name;
 		decl->type = type;
 		decl->kind = kind;
@@ -237,38 +239,38 @@ uint	make_decl (struct unit *unit, uint scope_index, const char *name, uint type
 	return (index);
 }
 
-uint	make_var_decl (struct unit *unit, uint scope_index, const char *name, uint type) {
+uint	make_var_decl (struct unit *unit, uint scope_index, const char *name, uint type, int line) {
 	uint	index;
 
 	Assert (type);
-	index = make_decl (unit, scope_index, name, type, DeclKind (var));
+	index = make_decl (unit, scope_index, name, type, DeclKind (var), line);
 	get_decl (unit, index)->var.init_scope = 0;
 	return (index);
 }
 
-uint	make_alias_decl (struct unit *unit, uint scope_index, const char *name, uint expr_index) {
+uint	make_alias_decl (struct unit *unit, uint scope_index, const char *name, uint expr_index, int line) {
 	uint	index;
 
 	Assert (expr_index);
-	index = make_decl (unit, scope_index, name, 0, DeclKind (alias));
+	index = make_decl (unit, scope_index, name, 0, DeclKind (alias), line);
 	get_decl (unit, index)->alias.expr = expr_index;
 	return (index);
 }
 
-uint	make_const_decl (struct unit *unit, uint scope_index, const char *name, uint type, uint expr) {
+uint	make_const_decl (struct unit *unit, uint scope_index, const char *name, uint type, uint expr, int line) {
 	uint	index;
 
-	index = make_decl (unit, scope_index, name, type, DeclKind (const));
+	index = make_decl (unit, scope_index, name, type, DeclKind (const), line);
 	if (index) {
 		get_decl (unit, index)->dconst.expr = expr;
 	}
 	return (index);
 }
 
-uint	make_func_decl (struct unit *unit, uint scope_index, const char *name, uint type, uint scope, uint param_scope) {
+uint	make_func_decl (struct unit *unit, uint scope_index, const char *name, uint type, uint scope, uint param_scope, int line) {
 	uint	index;
 
-	index = make_decl (unit, scope_index, name, type, DeclKind (func));
+	index = make_decl (unit, scope_index, name, type, DeclKind (func), line);
 	if (index) {
 		struct decl	*decl;
 
@@ -279,10 +281,10 @@ uint	make_func_decl (struct unit *unit, uint scope_index, const char *name, uint
 	return (index);
 }
 
-uint	make_define_macro_decl (struct unit *unit, uint scope_index, const char *name, uint scope, uint param_scope) {
+uint	make_define_macro_decl (struct unit *unit, uint scope_index, const char *name, uint scope, uint param_scope, int line) {
 	uint	index;
 
-	index = make_decl (unit, scope_index, name, 0, DeclKind (define));
+	index = make_decl (unit, scope_index, name, 0, DeclKind (define), line);
 	if (index) {
 		struct decl	*decl;
 
@@ -294,10 +296,10 @@ uint	make_define_macro_decl (struct unit *unit, uint scope_index, const char *na
 	return (index);
 }
 
-uint	make_tag_decl (struct unit *unit, uint scope_index, const char *name, uint type, enum tagtype tagtype, uint scope) {
+uint	make_tag_decl (struct unit *unit, uint scope_index, const char *name, uint type, enum tagtype tagtype, uint scope, int line) {
 	uint	index;
 
-	index = make_decl (unit, scope_index, name, type, DeclKind (tag));
+	index = make_decl (unit, scope_index, name, type, DeclKind (tag), line);
 	if (index) {
 		struct decl	*decl;
 
@@ -309,20 +311,20 @@ uint	make_tag_decl (struct unit *unit, uint scope_index, const char *name, uint 
 	return (index);
 }
 
-uint	make_block_decl (struct unit *unit, uint scope_index, const char *name, uint scope) {
+uint	make_block_decl (struct unit *unit, uint scope_index, const char *name, uint scope, int line) {
 	uint	index;
 
-	index = make_decl (unit, scope_index, name, 0, DeclKind (block));
+	index = make_decl (unit, scope_index, name, 0, DeclKind (block), line);
 	if (index) {
 		get_decl (unit, index)->block.scope = scope;
 	}
 	return (index);
 }
 
-uint	make_enum_decl (struct unit *unit, uint scope_index, const char *name, uint expr, uint params) {
+uint	make_enum_decl (struct unit *unit, uint scope_index, const char *name, uint expr, uint params, int line) {
 	uint	index;
 
-	index = make_decl (unit, scope_index, name, 0, DeclKind (enum));
+	index = make_decl (unit, scope_index, name, 0, DeclKind (enum), line);
 	if (index) {
 		get_decl (unit, index)->enumt.expr = expr;
 		get_decl (unit, index)->enumt.params = params;
@@ -330,10 +332,10 @@ uint	make_enum_decl (struct unit *unit, uint scope_index, const char *name, uint
 	return (index);
 }
 
-uint	make_define_accessor_decl (struct unit *unit, uint scope_index, const char *name, enum tagtype tagtype, const char *tagname) {
+uint	make_define_accessor_decl (struct unit *unit, uint scope_index, const char *name, enum tagtype tagtype, const char *tagname, int line) {
 	uint	index;
 
-	index = make_decl (unit, scope_index, name, 0, DeclKind (define));
+	index = make_decl (unit, scope_index, name, 0, DeclKind (define), line);
 	if (index) {
 		struct decl	*decl;
 
@@ -346,10 +348,10 @@ uint	make_define_accessor_decl (struct unit *unit, uint scope_index, const char 
 	return (index);
 }
 
-uint	make_param_decl (struct unit *unit, uint scope_index, const char *name, uint type_index) {
+uint	make_param_decl (struct unit *unit, uint scope_index, const char *name, uint type_index, int line) {
 	uint	index;
 
-	index = make_decl (unit, scope_index, name, type_index, DeclKind (param));
+	index = make_decl (unit, scope_index, name, type_index, DeclKind (param), line);
 	if (index) {
 		struct decl	*decl;
 
@@ -359,30 +361,30 @@ uint	make_param_decl (struct unit *unit, uint scope_index, const char *name, uin
 	return (index);
 }
 
-uint	make_define_external_decl (struct unit *unit, uint scope_index, const char *name, uint type_index) {
+uint	make_define_external_decl (struct unit *unit, uint scope_index, const char *name, uint type_index, int line) {
 	uint	index;
 
-	index = make_decl (unit, scope_index, name, type_index, DeclKind (define));
+	index = make_decl (unit, scope_index, name, type_index, DeclKind (define), line);
 	if (index) {
 		get_decl (unit, index)->define.kind = DefineKind (external);
 	}
 	return (index);
 }
 
-uint	make_define_type_decl (struct unit *unit, uint scope_index, const char *name, uint type_index) {
+uint	make_define_type_decl (struct unit *unit, uint scope_index, const char *name, uint type_index, int line) {
 	uint	index;
 
-	index = make_decl (unit, scope_index, name, type_index, DeclKind (define));
+	index = make_decl (unit, scope_index, name, type_index, DeclKind (define), line);
 	if (index) {
 		get_decl (unit, index)->define.kind = DefineKind (type);
 	}
 	return (index);
 }
 
-uint	make_define_visability_decl (struct unit *unit, uint scope_index, enum visability visability, const char *target) {
+uint	make_define_visability_decl (struct unit *unit, uint scope_index, enum visability visability, const char *target, int line) {
 	uint	index;
 
-	index = make_decl (unit, scope_index, 0, 0, DeclKind (define));
+	index = make_decl (unit, scope_index, 0, 0, DeclKind (define), line);
 	if (index) {
 		struct decl	*decl;
 
@@ -394,10 +396,10 @@ uint	make_define_visability_decl (struct unit *unit, uint scope_index, enum visa
 	return (index);
 }
 
-uint	make_define_funcprefix_decl (struct unit *unit, uint scope_index, const char *prefix, const char *target) {
+uint	make_define_funcprefix_decl (struct unit *unit, uint scope_index, const char *prefix, const char *target, int line) {
 	uint	index;
 
-	index = make_decl (unit, scope_index, 0, 0, DeclKind (define));
+	index = make_decl (unit, scope_index, 0, 0, DeclKind (define), line);
 	if (index) {
 		struct decl	*decl;
 
@@ -409,10 +411,10 @@ uint	make_define_funcprefix_decl (struct unit *unit, uint scope_index, const cha
 	return (index);
 }
 
-uint	make_define_builtin_decl (struct unit *unit, uint scope_index, enum builtin builtin) {
+uint	make_define_builtin_decl (struct unit *unit, uint scope_index, enum builtin builtin, int line) {
 	uint	index;
 
-	index = make_decl (unit, scope_index, g_builtin[builtin], 0, DeclKind (define));
+	index = make_decl (unit, scope_index, g_builtin[builtin], 0, DeclKind (define), line);
 	if (index) {
 		struct decl	*decl;
 
@@ -455,7 +457,7 @@ int		parse_code_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 		if (0 == strcmp (*ptokens, "if")) {
 			uint	expr, body;
 
-			*out = make_if_flow (unit, 0, 0, 0);
+			*out = make_if_flow (unit, 0, 0, 0, unit->pos.line);
 			*ptokens = next_token (*ptokens, &unit->pos);
 			if (parse_expr (unit, ptokens, &expr)) {
 				if (parse_code_scope_flow (unit, scope_index, ptokens, &body)) {
@@ -490,7 +492,7 @@ int		parse_code_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 		} else if (0 == strcmp (*ptokens, "constif")) {
 			uint	expr, body;
 
-			*out = make_constif_flow (unit, 0, 0, 0);
+			*out = make_constif_flow (unit, 0, 0, 0, unit->pos.line);
 			*ptokens = next_token (*ptokens, &unit->pos);
 			if (parse_expr (unit, ptokens, &expr)) {
 				if (parse_code_scope_flow (unit, scope_index, ptokens, &body)) {
@@ -525,7 +527,7 @@ int		parse_code_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 		} else if (0 == strcmp (*ptokens, "while")) {
 			uint	expr, body;
 
-			*out = make_while_flow (unit, 0, 0);
+			*out = make_while_flow (unit, 0, 0, unit->pos.line);
 			*ptokens = next_token (*ptokens, &unit->pos);
 			if (parse_expr (unit, ptokens, &expr)) {
 				if (parse_code_scope_flow (unit, scope_index, ptokens, &body)) {
@@ -544,7 +546,7 @@ int		parse_code_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 		} else if (0 == strcmp (*ptokens, "do")) {
 			uint	expr, body;
 
-			*out = make_dowhile_flow (unit, 0, 0);
+			*out = make_dowhile_flow (unit, 0, 0, unit->pos.line);
 			*ptokens = next_token (*ptokens, &unit->pos);
 			if (parse_code_scope_flow (unit, scope_index, ptokens, &body)) {
 				if (is_token (*ptokens, Token (identifier), "while")) {
@@ -574,7 +576,9 @@ int		parse_code_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 		} else if (0 == strcmp (*ptokens, "var")) {
 			const char	*name;
 			uint		type_index;
+			int			line;
 
+			line = unit->pos.line;
 			*ptokens = next_token (*ptokens, &unit->pos);
 			if ((*ptokens)[-1] == Token (identifier)) {
 				name = *ptokens;
@@ -589,9 +593,9 @@ int		parse_code_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 								int		decl;
 
 								*ptokens = next_token (*ptokens, &unit->pos);
-								decl = make_var_decl (unit, scope_index, name, type_index);
+								decl = make_var_decl (unit, scope_index, name, type_index, line);
 								if (decl) {
-									*out = make_decl_flow (unit, decl);
+									*out = make_decl_flow (unit, decl, line);
 									Assert (*out);
 									result = 1;
 								} else {
@@ -620,7 +624,9 @@ int		parse_code_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 		} else if (0 == strcmp (*ptokens, "alias")) {
 			const char	*name;
 			uint		expr_index;
+			int			line;
 
+			line = unit->pos.line;
 			*ptokens = next_token (*ptokens, &unit->pos);
 			if ((*ptokens)[-1] == Token (identifier)) {
 				name = *ptokens;
@@ -631,8 +637,8 @@ int		parse_code_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 							uint	decl_index;
 
 							*ptokens = next_token (*ptokens, &unit->pos);
-							decl_index = make_alias_decl (unit, scope_index, name, expr_index);
-							*out = make_decl_flow (unit, decl_index);
+							decl_index = make_alias_decl (unit, scope_index, name, expr_index, line);
+							*out = make_decl_flow (unit, decl_index, line);
 							result = 1;
 						} else {
 							Parse_Error (*ptokens, unit->pos, "empty alias");
@@ -651,11 +657,13 @@ int		parse_code_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 			}
 		} else {
 			uint	expr;
+			int		line;
 
+			line = unit->pos.line;
 			if (parse_expr (unit, ptokens, &expr)) {
 				if (is_token (*ptokens, Token (punctuator), ";")) {
 					*ptokens = next_token (*ptokens, &unit->pos);
-					*out = make_expr_flow (unit, expr);
+					*out = make_expr_flow (unit, expr, line);
 					Assert (*out);
 					result = 1;
 				} else {
@@ -671,7 +679,7 @@ int		parse_code_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 		uint	inner_scope;
 
 		inner_scope = make_scope (unit, ScopeKind (code), scope_index);
-		*out = make_block_flow (unit, inner_scope);
+		*out = make_block_flow (unit, inner_scope, unit->pos.line);
 		*ptokens = next_token (*ptokens, &unit->pos);
 		if (parse_scope (unit, inner_scope, ptokens)) {
 			if (is_token (*ptokens, Token (punctuator), "}")) {
@@ -687,16 +695,18 @@ int		parse_code_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 		}
 	} else if (is_token (*ptokens, Token (punctuator), ";")) {
 		*ptokens = next_token (*ptokens, &unit->pos);
-		*out = make_expr_flow (unit, 0);
+		*out = make_expr_flow (unit, 0, unit->pos.line);
 		Assert (*out);
 		result = 1;
 	} else {
 		uint	expr;
+		int		line;
 
+		line = unit->pos.line;
 		if (parse_expr (unit, ptokens, &expr)) {
 			if (is_token (*ptokens, Token (punctuator), ";")) {
 				*ptokens = next_token (*ptokens, &unit->pos);
-				*out = make_expr_flow (unit, expr);
+				*out = make_expr_flow (unit, expr, line);
 				Assert (*out);
 				result = 1;
 			} else if (!expr) {
@@ -720,7 +730,9 @@ int		parse_tag_decl_flow (struct unit *unit, enum tagtype tagtype, uint scope_in
 	if ((*ptokens)[-1] == Token (identifier)) {
 		const char	*name;
 		uint		param_scope;
+		int			line;
 
+		line = unit->pos.line;
 		param_scope = 0;
 		name = *ptokens;
 		*ptokens = next_token (*ptokens, &unit->pos);
@@ -740,11 +752,11 @@ int		parse_tag_decl_flow (struct unit *unit, enum tagtype tagtype, uint scope_in
 					uint	type_index;
 
 					type_index = make_tag_type (unit, name, tagtype);
-					decl = make_tag_decl (unit, scope_index, name, type_index, tagtype, scope);
+					decl = make_tag_decl (unit, scope_index, name, type_index, tagtype, scope, line);
 					get_decl (unit, decl)->tag.param_scope = param_scope;
 					get_scope (unit, scope)->type_index = type_index;
 					get_type (unit, type_index)->tag.decl = decl;
-					*out = make_decl_flow (unit, decl);
+					*out = make_decl_flow (unit, decl, line);
 					*ptokens = next_token (*ptokens, &unit->pos);
 					result = 1;
 				} else {
@@ -767,8 +779,10 @@ int		parse_tag_decl_flow (struct unit *unit, enum tagtype tagtype, uint scope_in
 
 int		parse_accessor_decl_flow (struct unit *unit, uint scope_index, char **ptokens, uint *out) {
 	int		result;
+	int		line;
 
 	Assert (is_token (*ptokens, Token (identifier), "accessor"));
+	line = unit->pos.line;
 	*ptokens = next_token (*ptokens, &unit->pos);
 	if ((*ptokens)[-1] == Token (identifier)) {
 		const char		*name, *tagname;
@@ -784,8 +798,8 @@ int		parse_accessor_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 				*ptokens = next_token (*ptokens, &unit->pos);
 				if (is_token (*ptokens, Token (punctuator), ";")) {
 					*ptokens = next_token (*ptokens, &unit->pos);
-					decl_index = make_define_accessor_decl (unit, scope_index, name, tagtype, tagname);
-					*out = make_decl_flow (unit, decl_index);
+					decl_index = make_define_accessor_decl (unit, scope_index, name, tagtype, tagname, line);
+					*out = make_decl_flow (unit, decl_index, line);
 					result = 1;
 				} else {
 					Parse_Error (*ptokens, unit->pos, "unexpected token");
@@ -808,8 +822,10 @@ int		parse_accessor_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 
 int		parse_const_decl_flow (struct unit *unit, uint scope_index, char **ptokens, uint *out) {
 	int		result;
+	int		line;
 
 	Assert (is_token (*ptokens, Token (identifier), "const"));
+	line = unit->pos.line;
 	*ptokens = next_token (*ptokens, &unit->pos);
 	if ((*ptokens)[-1] == Token (identifier)) {
 		const char	*name;
@@ -826,8 +842,8 @@ int		parse_const_decl_flow (struct unit *unit, uint scope_index, char **ptokens,
 					if (expr) {
 						uint	decl;
 
-						decl = make_const_decl (unit, scope_index, name, 0, expr);
-						*out = make_decl_flow (unit, decl);
+						decl = make_const_decl (unit, scope_index, name, 0, expr, line);
+						*out = make_decl_flow (unit, decl, line);
 						result = 1;
 					} else {
 						Parse_Error (*ptokens, unit->pos, "empty expression");
@@ -853,8 +869,10 @@ int		parse_const_decl_flow (struct unit *unit, uint scope_index, char **ptokens,
 
 int		parse_external_decl_flow (struct unit *unit, uint scope_index, char **ptokens, uint *out) {
 	int		result;
+	int		line;
 
 	Assert (is_token (*ptokens, Token (identifier), "external"));
+	line = unit->pos.line;
 	*ptokens = next_token (*ptokens, &unit->pos);
 	if ((*ptokens)[-1] == Token (identifier)) {
 		enum tagtype	tagtype;
@@ -876,8 +894,8 @@ int		parse_external_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 				if (is_token (*ptokens, Token (punctuator), ";")) {
 					uint	decl;
 
-					decl = make_define_external_decl (unit, scope_index, name, type_index);
-					*out = make_decl_flow (unit, decl);
+					decl = make_define_external_decl (unit, scope_index, name, type_index, line);
+					*out = make_decl_flow (unit, decl, line);
 					*ptokens = next_token (*ptokens, &unit->pos);
 					result = 1;
 				} else {
@@ -898,8 +916,10 @@ int		parse_external_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 int		parse_type_decl_flow (struct unit *unit, uint scope_index, char **ptokens, uint *out) {
 	int			result;
 	const char	*name;
+	int			line;
 
 	Assert (is_token (*ptokens, Token (identifier), "type"));
+	line = unit->pos.line;
 	*ptokens = next_token (*ptokens, &unit->pos);
 	if ((*ptokens)[-1] == Token (identifier)) {
 		uint	type_index;
@@ -910,8 +930,8 @@ int		parse_type_decl_flow (struct unit *unit, uint scope_index, char **ptokens, 
 			if (is_token (*ptokens, Token (punctuator), ";")) {
 				uint	decl;
 
-				decl = make_define_type_decl (unit, scope_index, name, type_index);
-				*out = make_decl_flow (unit, decl);
+				decl = make_define_type_decl (unit, scope_index, name, type_index, line);
+				*out = make_decl_flow (unit, decl, line);
 				*ptokens = next_token (*ptokens, &unit->pos);
 				result = 1;
 			} else {
@@ -931,8 +951,10 @@ int		parse_type_decl_flow (struct unit *unit, uint scope_index, char **ptokens, 
 int		parse_visability_decl_flow (struct unit *unit, uint scope_index, char **ptokens, uint *out) {
 	int			result;
 	const char	*name;
+	int			line;
 
 	Assert (is_token (*ptokens, Token (identifier), "visability"));
+	line = unit->pos.line;
 	*ptokens = next_token (*ptokens, &unit->pos);
 	if ((*ptokens)[-1] == Token (identifier)) {
 		uint			type_index;
@@ -958,8 +980,8 @@ int		parse_visability_decl_flow (struct unit *unit, uint scope_index, char **pto
 				if (is_token (*ptokens, Token (punctuator), ";")) {
 					uint	decl;
 
-					decl = make_define_visability_decl (unit, scope_index, visability, target);
-					*out = make_decl_flow (unit, decl);
+					decl = make_define_visability_decl (unit, scope_index, visability, target, line);
+					*out = make_decl_flow (unit, decl, line);
 					*ptokens = next_token (*ptokens, &unit->pos);
 					result = 1;
 				} else {
@@ -981,8 +1003,10 @@ int		parse_visability_decl_flow (struct unit *unit, uint scope_index, char **pto
 int		parse_funcprefix_decl_flow (struct unit *unit, uint scope_index, char **ptokens, uint *out) {
 	int			result;
 	const char	*name;
+	int			line;
 
 	Assert (is_token (*ptokens, Token (identifier), "funcprefix"));
+	line = unit->pos.line;
 	*ptokens = next_token (*ptokens, &unit->pos);
 	if ((*ptokens)[-1] == Token (identifier)) {
 		const char	*target;
@@ -997,8 +1021,8 @@ int		parse_funcprefix_decl_flow (struct unit *unit, uint scope_index, char **pto
 			if (is_token (*ptokens, Token (punctuator), ";")) {
 				uint	decl;
 
-				decl = make_define_funcprefix_decl (unit, scope_index, prefix, target);
-				*out = make_decl_flow (unit, decl);
+				decl = make_define_funcprefix_decl (unit, scope_index, prefix, target, line);
+				*out = make_decl_flow (unit, decl, line);
 				*ptokens = next_token (*ptokens, &unit->pos);
 				result = 1;
 			} else {
@@ -1019,8 +1043,10 @@ int		parse_funcprefix_decl_flow (struct unit *unit, uint scope_index, char **pto
 int		parse_builtin_decl_flow (struct unit *unit, uint scope_index, char **ptokens, uint *out) {
 	int			result;
 	const char	*name;
+	int			line;
 
 	Assert (is_token (*ptokens, Token (identifier), "builtin"));
+	line = unit->pos.line;
 	*ptokens = next_token (*ptokens, &unit->pos);
 	if ((*ptokens)[-1] == Token (identifier)) {
 		int		index;
@@ -1034,8 +1060,8 @@ int		parse_builtin_decl_flow (struct unit *unit, uint scope_index, char **ptoken
 			if (is_token (*ptokens, Token (punctuator), ";")) {
 				uint	decl;
 
-				decl = make_define_builtin_decl (unit, scope_index, index);
-				*out = make_decl_flow (unit, decl);
+				decl = make_define_builtin_decl (unit, scope_index, index, line);
+				*out = make_decl_flow (unit, decl, line);
 				*ptokens = next_token (*ptokens, &unit->pos);
 				result = 1;
 			} else {
@@ -1619,7 +1645,9 @@ int		parse_unit_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 		} else {
 			const char	*name;
 			uint		type_index;
+			int			line;
 
+			line = unit->pos.line;
 			name = *ptokens;
 			*ptokens = next_token (*ptokens, &unit->pos);
 			if (parse_type (unit, ptokens, &type_index)) {
@@ -1632,8 +1660,8 @@ int		parse_unit_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 							uint	decl;
 							uint	func_scope;
 
-							decl = make_func_decl (unit, scope_index, name, type_index, 0, type->mod.param_scope);
-							*out = make_decl_flow (unit, decl);
+							decl = make_func_decl (unit, scope_index, name, type_index, 0, type->mod.param_scope, line);
+							*out = make_decl_flow (unit, decl, line);
 							*ptokens = next_token (*ptokens, &unit->pos);
 							func_scope = make_scope (unit, ScopeKind (func), scope_index);
 							get_scope (unit, func_scope)->param_scope = type->mod.param_scope;
@@ -1659,8 +1687,8 @@ int		parse_unit_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 						uint		init_scope;
 
 						*ptokens = next_token (*ptokens, &unit->pos);
-						decl = make_var_decl (unit, scope_index, name, type_index);
-						*out = make_decl_flow (unit, decl);
+						decl = make_var_decl (unit, scope_index, name, type_index, line);
+						*out = make_decl_flow (unit, decl, line);
 						init_scope = make_scope (unit, ScopeKind (init), scope_index);
 						get_scope (unit, init_scope)->type_index = type->mod.forward;
 						if (parse_scope (unit, init_scope, ptokens)) {
@@ -1679,8 +1707,8 @@ int		parse_unit_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 						uint		decl;
 
 						*ptokens = next_token (*ptokens, &unit->pos);
-						decl = make_var_decl (unit, scope_index, name, type_index);
-						*out = make_decl_flow (unit, decl);
+						decl = make_var_decl (unit, scope_index, name, type_index, line);
+						*out = make_decl_flow (unit, decl, line);
 						result = 1;
 					} else {
 						Parse_Error (*ptokens, unit->pos, "unexpected token");
@@ -1738,7 +1766,9 @@ int		parse_struct_tag_scope_flow (struct unit *unit, uint scope_index, char **pt
 			result = 0;
 		} else {
 			const char	*name;
+			int		line;
 
+			line = unit->pos.line;
 			name = *ptokens;
 			*ptokens = next_token (*ptokens, &unit->pos);
 			if (is_token (*ptokens, Token (punctuator), "{")) {
@@ -1765,8 +1795,8 @@ int		parse_struct_tag_scope_flow (struct unit *unit, uint scope_index, char **pt
 							uint	decl;
 
 							*ptokens = next_token (*ptokens, &unit->pos);
-							decl = make_block_decl (unit, scope_index, name, scope);
-							*out = make_decl_flow (unit, decl);
+							decl = make_block_decl (unit, scope_index, name, scope, line);
+							*out = make_decl_flow (unit, decl, line);
 							result = 1;
 						} else {
 							Parse_Error (*ptokens, unit->pos, "unexpected token");
@@ -1785,8 +1815,8 @@ int		parse_struct_tag_scope_flow (struct unit *unit, uint scope_index, char **pt
 						uint	decl;
 
 						*ptokens = next_token (*ptokens, &unit->pos);
-						decl = make_var_decl (unit, scope_index, name, type_index);
-						*out = make_decl_flow (unit, decl);
+						decl = make_var_decl (unit, scope_index, name, type_index, line);
+						*out = make_decl_flow (unit, decl, line);
 						result = 1;
 					} else {
 						Parse_Error (*ptokens, unit->pos, "unexpected token");
@@ -1813,7 +1843,9 @@ int		parse_enum_tag_scope_flow (struct unit *unit, uint scope_index, char **ptok
 		uint		expr;
 		int			is_params;
 		uint		params;
+		int			line;
 
+		line = unit->pos.line;
 		is_params = 0;
 		params = 0;
 		name = *ptokens;
@@ -1886,8 +1918,8 @@ int		parse_enum_tag_scope_flow (struct unit *unit, uint scope_index, char **ptok
 		if (result) {
 			uint	decl;
 
-			decl = make_enum_decl (unit, scope_index, name, expr, params);
-			*out = make_decl_flow (unit, decl);
+			decl = make_enum_decl (unit, scope_index, name, expr, params, line);
+			*out = make_decl_flow (unit, decl, line);
 		}
 	} else {
 		result = 2;
@@ -1900,13 +1932,15 @@ int		parse_init_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 
 	if (is_token (*ptokens, Token (punctuator), "{")) {
 		uint	init_scope;
+		int		line;
 
+		line = unit->pos.line;
 		*ptokens = next_token (*ptokens, &unit->pos);
 		init_scope = make_scope (unit, ScopeKind (init), scope_index);
 		if (parse_scope (unit, init_scope, ptokens)) {
 			if (is_token (*ptokens, Token (punctuator), "}")) {
 				*ptokens = next_token (*ptokens, &unit->pos);
-				*out = make_init_flow (unit, InitType (list), init_scope);
+				*out = make_init_flow (unit, InitType (list), init_scope, line);
 				result = 1;
 			} else {
 				Parse_Error (*ptokens, unit->pos, "unexpected token");
@@ -1919,12 +1953,14 @@ int		parse_init_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 		result = 2;
 	} else {
 		uint	expr;
+		int		line;
 
+		line = unit->pos.line;
 		if (parse_expr (unit, ptokens, &expr)) {
 			if (is_token (*ptokens, Token (punctuator), ";")) {
 				if (expr) {
 					*ptokens = next_token (*ptokens, &unit->pos);
-					*out = make_init_flow (unit, InitType (expr), expr);
+					*out = make_init_flow (unit, InitType (expr), expr, line);
 					result = 1;
 				} else {
 					Parse_Error (*ptokens, unit->pos, "empty expr");
@@ -1963,8 +1999,8 @@ int		parse_scope (struct unit *unit, uint scope_index, char **ptokens) {
 			uint	flow_index;
 
 			type_index = make_type_copy (unit, unit, get_type_index (unit, type));
-			decl_index = make_var_decl (unit, scope_index, "result", type_index);
-			flow_index = make_decl_flow (unit, decl_index);
+			decl_index = make_var_decl (unit, scope_index, "result", type_index, unit->pos.line);
+			flow_index = make_decl_flow (unit, decl_index, unit->pos.line);
 			add_flow_to_scope (unit, scope_index, flow_index);
 		}
 	}

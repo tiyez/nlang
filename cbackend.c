@@ -66,17 +66,8 @@ void	cbackend_typemod (struct unit *unit, struct type **types, int index, const 
 				cbackend_typemod (unit, types, index - 1, iden, prefix, buffer);
 			}
 			if (type->mod.kind == TypeMod (array)) {
-				if (type->mod.expr) {
-					struct unit	*decl_unit;
-
-					if (is_lib_index (type->mod.expr)) {
-						decl_unit = get_lib (get_lib_index (type->mod.expr));
-					} else {
-						decl_unit = unit;
-					}
-					write_string (buffer->wr, "[");
-					cbackend_expr (decl_unit, unlib_index (type->mod.expr), buffer);
-					write_string (buffer->wr, "]");
+				if (type->mod.count) {
+					write_format (buffer->wr, "[%llu]", type->mod.count);
 				} else {
 					write_string (buffer->wr, "[]");
 				}
@@ -322,13 +313,16 @@ int		cbackend_expr (struct unit *unit, uint expr_index, struct cbuffer *buffer) 
 		if (expr->typeinfo.index) {
 			struct decl	*decl;
 			struct unit	*decl_unit;
+			int			ordindex;
 
 			if (expr->typeinfo.lib_index) {
 				decl_unit = get_lib (expr->typeinfo.lib_index);
 			} else {
 				decl_unit = unit;
 			}
-			write_format (buffer->wr, "(%s[%d])", get_global_decl_name (decl_unit->flags[Flag (unit_index)], "typeinfos__"), Get_Bucket_OrdIndex (decl_unit->typeinfos, expr->typeinfo.index));
+			ordindex = Get_Bucket_OrdIndex (decl_unit->typeinfos, expr->typeinfo.index);
+			Assert (ordindex >= 0);
+			write_format (buffer->wr, "(%s[%d])", get_global_decl_name (decl_unit->flags[Flag (unit_index)], "typeinfos__"), ordindex);
 			result = 1;
 		} else {
 			Error ("no decl for typeinfo");
@@ -705,7 +699,7 @@ int		cbackend_enum_table (struct unit *unit, uint enum_decl_index, int is_protot
 	uint			decl_index;
 	struct decl		*enum_decl;
 	uint			param_index;
-	uint			count_expr_index;
+	uint			count_decls;
 
 	enum_decl = get_decl (unit, enum_decl_index);
 	Assert (enum_decl->kind == DeclKind (tag) && enum_decl->tag.type == TagType (enum));
@@ -713,7 +707,7 @@ int		cbackend_enum_table (struct unit *unit, uint enum_decl_index, int is_protot
 	scope = get_scope (unit, enum_decl->tag.param_scope);
 	Assert (scope->decl_begin);
 	decl_index = scope->decl_begin;
-	count_expr_index = make_expr_usize_constant (unit, count_decls_in_scope (unit, enum_decl->tag.scope));
+	count_decls = count_decls_in_scope (unit, enum_decl->tag.scope);
 	param_index = 0;
 	result = 1;
 	while (result && decl_index) {
@@ -723,7 +717,7 @@ int		cbackend_enum_table (struct unit *unit, uint enum_decl_index, int is_protot
 		decl = get_decl (unit, decl_index);
 		write_c_new_line (buffer);
 		write_string (buffer->wr, "static ");
-		array_type_index = make_array_type (unit, decl->type, count_expr_index);
+		array_type_index = make_array_type (unit, decl->type, count_decls);
 		if (cbackend_type (unit, array_type_index, get_enum_table_name (unit->flags[Flag (unit_index)], enum_decl->name, decl->name), 0, buffer)) {
 			if (is_prototype) {
 				write_string (buffer->wr, ";");
@@ -771,7 +765,7 @@ int		cbackend_enum_table (struct unit *unit, uint enum_decl_index, int is_protot
 
 		write_c_new_line (buffer);
 		write_string (buffer->wr, "static ");
-		array_type_index = make_array_type (unit, make_pointer_type (unit, make_basic_type (unit, BasicType (char), 1), 1), count_expr_index);
+		array_type_index = make_array_type (unit, make_pointer_type (unit, make_basic_type (unit, BasicType (char), 1), 1), count_decls);
 		if (cbackend_type (unit, array_type_index, get_enum_table_name (unit->flags[Flag (unit_index)], enum_decl->name, "name"), 0, buffer)) {
 			if (is_prototype) {
 				write_string (buffer->wr, ";");

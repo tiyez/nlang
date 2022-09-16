@@ -22,6 +22,64 @@
 
 #include "text_preprocessor.c"
 
+int		write_data_to_file (const char *path, const char *data, usize size) {
+	int		result;
+	FILE	*file;
+
+	file = fopen (path, "w");
+	if (file) {
+		int		written;
+
+		written = fwrite (data, 1, size, file);
+		if (written == size) {
+			result = 1;
+		} else {
+			Error ("not all bytes written");
+			result = 0;
+		}
+		fclose (file);
+	} else {
+		Error ("can't open file");
+		result = 0;
+	}
+	return (result);
+}
+
+char	*read_file_until_eof (FILE *file) {
+	char	*buffer;
+	char	local[8 * 1024];
+	int		len;
+	int		result;
+
+	buffer = 0;
+	result = 1;
+	Prepare_Array (buffer, 0);
+	Push_Array_N (buffer, 0);
+	while (result && (len = fread (local, 1, sizeof local, file)) > 0) {
+		if (Prepare_Array (buffer, len)) {
+			char	*ptr;
+
+			ptr = Push_Array_N (buffer, len);
+			memcpy (ptr, local, len);
+			result = 1;
+		} else {
+			Error ("cannot prepare array");
+			result = 0;
+		}
+	}
+	if (result && !feof (file)) {
+		Error ("error occuried while reading from file");
+		result = 0;
+	}
+	if (!result) {
+		if (buffer) {
+			Free_Array (buffer);
+			buffer = 0;
+		}
+	}
+	return (buffer);
+}
+
 char	*read_entire_file (const char *filename, usize *psize) {
 	FILE	*file;
 	char	*result;
@@ -181,6 +239,7 @@ struct type_mod {
 	enum typemod	kind;
 	union {
 		uint64	expr;
+		uint64	count;
 		uint64	param_scope;
 	};
 };
@@ -347,6 +406,7 @@ struct decl {
 	uint			is_global : 1;
 	unsigned		size;
 	unsigned		offset;
+	unsigned		alignment;
 	enum declkind	kind;
 	union {
 		struct decl_var		var;
@@ -759,10 +819,11 @@ enum flag {
 	Flag (source),
 	Flag (entry),
 	Flag (unit_index),
+	Flag (shortname),
 	Flag (_count),
 };
 static const char	*const g_flag[Flag (_count)] = {
-	"build32", "test", "lib", "source", "entry", "unit_index"
+	"build32", "test", "lib", "source", "entry", "unit_index", "shortname"
 };
 
 struct declref {
@@ -820,6 +881,8 @@ struct unit		*g_unit = 0;
 uint64			g_typeinfo_struct_decl = 0;
 int				g_is_build32 = 0;
 enum platform	g_platform = Platform (windows);
+int				g_shortname = 0;
+int				g_is_test = 0;
 
 #define ValueCategory(name) ValueCategory_##name
 enum valuecategory {
@@ -857,8 +920,8 @@ struct evalvalue {
 		isize	value;
 		double	fvalue;
 		const char	*string;
-		int		typeinfo_index;
-		int		typemember_index;
+		uint	typeinfo_index;
+		uint	typemember_index;
 	};
 };
 
@@ -871,7 +934,7 @@ uint		make_scope (struct unit *unit, enum scopekind kind, uint parent);
 struct scope	*get_scope (struct unit *unit, uint scope_index);
 struct decl	*get_decl (struct unit *unit, uint index);
 struct flow	*get_flow (struct unit *unit, uint index);
-uint	make_param_decl (struct unit *unit, uint scope_index, const char *name, uint type_index);
+uint	make_param_decl (struct unit *unit, uint scope_index, const char *name, uint type_index, int line);
 uint	get_flow_index (struct unit *unit, struct flow *flow);
 void	print_expr (struct unit *unit, uint head_index, FILE *file);
 void	print_type (struct unit *unit, uint head, FILE *file);
@@ -989,6 +1052,10 @@ int		main (int argc, char *argv[]) {
 				flags[Flag (build32)] = 1;
 			} else if (0 == strcmp (*argv + 1, "test")) {
 				flags[Flag (test)] = 1;
+				g_is_test = 1;
+			} else if (0 == strcmp (*argv + 1, "shortname")) {
+				flags[Flag (shortname)] = 1;
+				g_shortname = 1;
 			} else {
 				fprintf (stderr, "error: unknown flag '%s'\n", *argv);
 				exit (1);

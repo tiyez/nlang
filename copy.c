@@ -1,13 +1,11 @@
 
 
+uint	make_type_copy (struct unit *unit, struct unit *decl_unit, uint type_index);
 
-uint	make_type_copy (struct unit *unit, struct unit *decl_unit, uint type_index) {
-	struct type	*type, *new_type;
+void	replace_type_with_copy (struct unit *unit, struct type *new_type, struct unit *decl_unit, uint type_index) {
+	struct type	*type;
 
 	type = get_type (decl_unit, type_index);
-	Prepare_Bucket (unit->types, 1);
-	new_type = Push_Bucket (unit->types);
-	Assert (new_type);
 	new_type->flags = type->flags;
 	new_type->kind = type->kind;
 	if (type->kind == TypeKind (basic)) {
@@ -41,7 +39,22 @@ uint	make_type_copy (struct unit *unit, struct unit *decl_unit, uint type_index)
 	} else {
 		Unreachable ();
 	}
-	return (get_type_index (unit, new_type));
+}
+
+uint	make_type_copy (struct unit *unit, struct unit *decl_unit, uint type_index) {
+	uint	index;
+
+	if (Prepare_Bucket (unit->types, 1)) {
+		struct type	*new_type;
+
+		new_type = Push_Bucket (unit->types);
+		replace_type_with_copy (unit, new_type, decl_unit, type_index);
+		index = Get_Bucket_Element_Index (unit->types, new_type);
+	} else {
+		Error ("cannot prepare bucket for type");
+		index = 0;
+	}
+	return (index);
 }
 
 void	replace_expr_with_copy (struct unit *unit, struct expr *new_expr, struct unit *decl_unit, uint expr_index);
@@ -136,7 +149,7 @@ uint	make_flow_copy (struct unit *unit, struct unit *decl_unit, uint scope_index
 	Assert (scope_index);
 	Assert (flow_index);
 	flow = get_flow (decl_unit, flow_index);
-	new_flow = get_flow (unit, make_flow (unit, flow->type));
+	new_flow = get_flow (unit, make_flow (unit, flow->type, flow->line));
 	Assert (new_flow);
 	if (flow->type == FlowType (if)) {
 		new_flow->fif.expr = make_expr_copy (unit, decl_unit, flow->fif.expr);
@@ -197,7 +210,7 @@ uint	make_decl_copy (struct unit *unit, struct unit *decl_unit, uint decl_index)
 	struct decl	*new_decl;
 
 	decl = get_decl (decl_unit, decl_index);
-	new_decl_index = make_decl (unit, 0, decl->name, 0, decl->kind);
+	new_decl_index = make_decl (unit, 0, decl->name, 0, decl->kind, decl->line);
 	Assert (new_decl_index);
 	new_decl = get_decl (unit, new_decl_index);
 	if (decl->type) {

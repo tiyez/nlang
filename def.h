@@ -28,7 +28,7 @@ do {Error (__VA_ARGS__);\
 	print_path (unit, (unit)->paths, stderr);\
 } while (0)
 #	define Parse_Error(tokens, pos, ...) \
-do {fprintf (stderr, "%s:%d:%d error: ", (pos).filename, (pos).line, (pos).column);\
+do {fprintf (stderr, "%s(%d) error: ", g_shortname ? (pos).filename : (pos).filepath, (pos).line);\
 	fprintf (stderr, __VA_ARGS__);\
 	fprintf (stderr, " (%s:%d)\n", __FILENAME__, __LINE__);\
 	print_tokens_until (get_beginning_token (tokens), 1, (pos).line, 0, "", Token (newline), stderr);\

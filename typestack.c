@@ -367,50 +367,45 @@ void	update_typestack (struct unit *unit, struct expr *expr, struct typestack *t
 		push_basictype_to_typestack (typestack, expr->constant.type, 0);
 		typestack->value = ValueCategory (rvalue);
 	} else if (expr->type == ExprType (identifier)) {
-		init_typestack (typestack);
-		if (0 == strcmp (expr->iden.name, "__Filename")) {
-			expr->type = ExprType (string);
-			expr->string.token = unit->filename;
-			push_const_char_pointer_to_typestack (typestack);
-			typestack->value = ValueCategory (rvalue);
-		} else if (0 == strcmp (expr->iden.name, "__Function")) {
-			expr->type = ExprType (string);
-			expr->string.token = unit->function_name;
-			push_const_char_pointer_to_typestack (typestack);
-			typestack->value = ValueCategory (rvalue);
-		} else {
-			struct decl	*decl;
-			struct unit	*decl_unit;
+		struct decl	*decl;
+		struct unit	*decl_unit;
 
-			if (is_lib_index (expr->iden.decl)) {
-				decl_unit = get_lib (get_lib_index (expr->iden.decl));
-			} else {
-				decl_unit = unit;
-			}
-			decl = get_decl (decl_unit, unlib_index (expr->iden.decl));
-			if (decl->type) {
-				push_typestack_recursive (unit, decl_unit, typestack, decl->type);
-				left = get_typestack_head (typestack);
-				if (left->kind == TypeKind (mod) && left->mod.kind == TypeMod (function)) {
-					Assert (decl->kind == DeclKind (func) || decl->kind == DeclKind (define));
-					push_pointer_type_to_typestack (typestack, 0);
-					typestack->value = ValueCategory (rvalue);
-				} else {
-					if (left->kind == TypeKind (tag) && left->tag.type == TagType (enum)) {
-						init_typestack (typestack);
-						push_basictype_to_typestack (typestack, BasicType (int), 0);
-					}
+		init_typestack (typestack);
+		if (is_lib_index (expr->iden.decl)) {
+			decl_unit = get_lib (get_lib_index (expr->iden.decl));
+		} else {
+			decl_unit = unit;
+		}
+		decl = get_decl (decl_unit, unlib_index (expr->iden.decl));
+		if (decl->type) {
+			push_typestack_recursive (unit, decl_unit, typestack, decl->type);
+			left = get_typestack_head (typestack);
+			if (left->kind == TypeKind (mod) && left->mod.kind == TypeMod (function)) {
+				Assert (decl->kind == DeclKind (func) || decl->kind == DeclKind (define));
+				push_pointer_type_to_typestack (typestack, 0);
+				typestack->value = ValueCategory (rvalue);
+			} else if (left->kind == TypeKind (mod) && left->mod.kind == TypeMod (array)) {
+				if (typestack->is_sizeof_context) {
 					typestack->value = ValueCategory (lvalue);
+				} else {
+					left->mod.kind = TypeMod (pointer);
+					typestack->value = ValueCategory (rvalue);
 				}
 			} else {
-				struct type	type = {0};
-
-				Assert (decl->kind == DeclKind (define));
-				type.kind = TypeKind (internal);
-				type.internal.decl = expr->iden.decl;
-				push_typestack (typestack, &type);
-				typestack->value = ValueCategory (rvalue);
+				if (left->kind == TypeKind (tag) && left->tag.type == TagType (enum)) {
+					init_typestack (typestack);
+					push_basictype_to_typestack (typestack, BasicType (int), 0);
+				}
+				typestack->value = ValueCategory (lvalue);
 			}
+		} else {
+			struct type	type = {0};
+
+			Assert (decl->kind == DeclKind (define));
+			type.kind = TypeKind (internal);
+			type.internal.decl = expr->iden.decl;
+			push_typestack (typestack, &type);
+			typestack->value = ValueCategory (rvalue);
 		}
 	} else if (expr->type == ExprType (typeinfo)) {
 		struct type	type = {0};
