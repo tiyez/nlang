@@ -134,20 +134,20 @@ const char	*get_expr_name (struct expr *expr) {
 }
 
 uint	get_expr_index (struct unit *unit, struct expr *expr) {
-	return (Get_Bucket_Element_Index (unit->exprs, expr));
+	return (Get_Bucket_Element_Index (unit->buckets->exprs, expr));
 }
 
 uint	make_expr_identifier (struct unit *unit, const char *name) {
 	uint	index;
 
-	if (Prepare_Bucket (unit->exprs, 1)) {
+	if (Prepare_Bucket (unit->buckets->exprs, 1)) {
 		struct expr	*expr;
 
-		expr = Push_Bucket (unit->exprs);
+		expr = Push_Bucket (unit->buckets->exprs);
 		expr->type = ExprType (identifier);
 		expr->iden.name = name;
 		expr->iden.decl = 0;
-		index = Get_Bucket_Element_Index (unit->exprs, expr);
+		index = Get_Bucket_Element_Index (unit->buckets->exprs, expr);
 	} else {
 		Error ("cannot prepare array for expr");
 		index = 0;
@@ -365,14 +365,14 @@ uint	make_expr_constant (struct unit *unit, char *token) {
  	struct exprvalue	value;
 
 	if (parse_constant_value (unit, token, &value)) {
-		if (Prepare_Bucket (unit->exprs, 1)) {
+		if (Prepare_Bucket (unit->buckets->exprs, 1)) {
 			struct expr	*expr;
 			char	*ptr;
 
-			expr = Push_Bucket (unit->exprs);
+			expr = Push_Bucket (unit->buckets->exprs);
 			expr->type = ExprType (constant);
 			expr->constant = value;
-			index = Get_Bucket_Element_Index (unit->exprs, expr);
+			index = Get_Bucket_Element_Index (unit->buckets->exprs, expr);
 		} else {
 			Error ("cannot prepare array for expr");
 			index = 0;
@@ -386,14 +386,14 @@ uint	make_expr_constant (struct unit *unit, char *token) {
 uint	make_expr_usize_constant (struct unit *unit, usize value) {
  	uint	index;
 
-	if (Prepare_Bucket (unit->exprs, 1)) {
+	if (Prepare_Bucket (unit->buckets->exprs, 1)) {
 		struct expr	*expr;
 
-		expr = Push_Bucket (unit->exprs);
+		expr = Push_Bucket (unit->buckets->exprs);
 		expr->type = ExprType (constant);
 		expr->constant.type = BasicType (usize);
 		expr->constant.value = value;
-		index = Get_Bucket_Element_Index (unit->exprs, expr);
+		index = Get_Bucket_Element_Index (unit->buckets->exprs, expr);
 	} else {
 		Error ("cannot prepare array for expr");
 		index = 0;
@@ -404,13 +404,31 @@ uint	make_expr_usize_constant (struct unit *unit, usize value) {
 uint	make_expr_string (struct unit *unit, const char *token) {
  	uint	index;
 
-	if (Prepare_Bucket (unit->exprs, 1)) {
+	if (Prepare_Bucket (unit->buckets->exprs, 1)) {
 		struct expr	*expr;
 
-		expr = Push_Bucket (unit->exprs);
+		expr = Push_Bucket (unit->buckets->exprs);
 		expr->type = ExprType (string);
 		expr->string.token = token;
-		index = Get_Bucket_Element_Index (unit->exprs, expr);
+		index = Get_Bucket_Element_Index (unit->buckets->exprs, expr);
+	} else {
+		Error ("cannot prepare array for expr");
+		index = 0;
+	}
+	return (index);
+}
+
+uint	make_expr_char_constant (struct unit *unit, int value) {
+ 	uint	index;
+
+	if (Prepare_Bucket (unit->buckets->exprs, 1)) {
+		struct expr	*expr;
+
+		expr = Push_Bucket (unit->buckets->exprs);
+		expr->type = ExprType (constant);
+		expr->constant.type = BasicType (int);
+		expr->constant.value = value;
+		index = Get_Bucket_Element_Index (unit->buckets->exprs, expr);
 	} else {
 		Error ("cannot prepare array for expr");
 		index = 0;
@@ -421,13 +439,13 @@ uint	make_expr_string (struct unit *unit, const char *token) {
 uint	make_expr_op (struct unit *unit, enum optype type) {
 	uint	index;
 
-	if (Prepare_Bucket (unit->exprs, 1)) {
+	if (Prepare_Bucket (unit->buckets->exprs, 1)) {
 		struct expr	*expr;
 
-		expr = Push_Bucket (unit->exprs);
+		expr = Push_Bucket (unit->buckets->exprs);
 		expr->type = ExprType (op);
 		expr->op.type = type;
-		index = Get_Bucket_Element_Index (unit->exprs, expr);
+		index = Get_Bucket_Element_Index (unit->buckets->exprs, expr);
 	} else {
 		Error ("cannot prepare array for expr");
 		index = 0;
@@ -438,14 +456,14 @@ uint	make_expr_op (struct unit *unit, enum optype type) {
 uint	make_expr_funcparam (struct unit *unit, uint expr_index, uint next) {
 	uint	index;
 
-	if (Prepare_Bucket (unit->exprs, 1)) {
+	if (Prepare_Bucket (unit->buckets->exprs, 1)) {
 		struct expr	*expr;
 
-		expr = Push_Bucket (unit->exprs);
+		expr = Push_Bucket (unit->buckets->exprs);
 		expr->type = ExprType (funcparam);
 		expr->funcparam.expr = expr_index;
 		expr->funcparam.next = next;
-		index = Get_Bucket_Element_Index (unit->exprs, expr);
+		index = Get_Bucket_Element_Index (unit->buckets->exprs, expr);
 	} else {
 		Error ("cannot prepare array for expr");
 		index = 0;
@@ -454,8 +472,8 @@ uint	make_expr_funcparam (struct unit *unit, uint expr_index, uint next) {
 }
 
 struct expr	*get_expr (struct unit *unit, uint index) {
-	Assert (Is_Bucket_Index_Valid (unit->exprs, index));
-	return (Get_Bucket_Element (unit->exprs, index));
+	Assert (Is_Bucket_Index_Valid (unit->buckets->exprs, index));
+	return (Get_Bucket_Element (unit->buckets->exprs, index));
 }
 
 uint	make_expr_op_from_token (struct unit *unit, char *token, struct exprstate *state) {
@@ -612,8 +630,10 @@ void	parse_expr_rec (struct unit *unit, char **ptokens, uint *phead, struct expr
 						} else {
 							*phead = link_expr_op (unit, get_expr (unit, *phead), *phead, get_expr (unit, expr_index), expr_index);
 						}
-					} else {
+					} else if (is_active_buckets (unit)) {
 						Parse_Error (*ptokens, unit->pos, "unexpected token; expecting ')'");
+						state->result = 0;
+					} else {
 						state->result = 0;
 					}
 				} else {
@@ -635,7 +655,7 @@ void	parse_expr_rec (struct unit *unit, char **ptokens, uint *phead, struct expr
 								} else {
 									Unreachable ();
 								}
-								expr->op.forward = type_index;
+								expr->op.backward = type_index;
 								state->is_post_value = 1;
 								state->is_incomplete = 0;
 								*ptokens = next_token (*ptokens, &unit->pos);
@@ -645,12 +665,16 @@ void	parse_expr_rec (struct unit *unit, char **ptokens, uint *phead, struct expr
 									*phead = link_expr_op (unit, get_expr (unit, *phead), *phead, expr, expr_index);
 								}
 								state->result = 1;
-							} else {
+							} else if (is_active_buckets (unit)) {
 								Parse_Error (*ptokens, unit->pos, "empty type");
 								state->result = 0;
+							} else {
+								state->result = 0;
 							}
-						} else {
+						} else if (is_active_buckets (unit)) {
 							Parse_Error (*ptokens, unit->pos, "unexpected token; expecting ']'");
+							state->result = 0;
+						} else {
 							state->result = 0;
 						}
 					} else {
@@ -692,15 +716,19 @@ void	parse_expr_rec (struct unit *unit, char **ptokens, uint *phead, struct expr
 								} else {
 									funcparam_index = get_expr (unit, expr_index)->op.backward = make_expr_funcparam (unit, 0, 0);
 								}
-							} else {
+							} else if (is_active_buckets (unit)) {
 								Parse_Error (*ptokens, unit->pos, "empty parameter");
+								state->result = 0;
+							} else {
 								state->result = 0;
 							}
 						} else {
 							state->result = 0;
 						}
-					} else {
+					} else if (is_active_buckets (unit)) {
 						Parse_Error (*ptokens, unit->pos, "unexpected token");
+						state->result = 0;
+					} else {
 						state->result = 0;
 					}
 				}
@@ -708,8 +736,10 @@ void	parse_expr_rec (struct unit *unit, char **ptokens, uint *phead, struct expr
 					if ((*ptokens)[-1]) {
 						*ptokens = next_token (*ptokens, &unit->pos);
 						*phead = link_expr_op (unit, get_expr (unit, *phead), *phead, get_expr (unit, expr_index), expr_index);
-					} else {
+					} else if (is_active_buckets (unit)) {
 						Parse_Error (*ptokens, unit->pos, "unexpected end");
+						state->result = 0;
+					} else {
 						state->result = 0;
 					}
 				}
@@ -725,12 +755,16 @@ void	parse_expr_rec (struct unit *unit, char **ptokens, uint *phead, struct expr
 							get_expr (unit, expr_index)->op.backward = subscript_index;
 							Assert (*phead);
 							*phead = link_expr_op (unit, get_expr (unit, *phead), *phead, get_expr (unit, expr_index), expr_index);
-						} else {
+						} else if (is_active_buckets (unit)) {
 							Parse_Error (*ptokens, unit->pos, "unexpected token");
 							state->result = 0;
+						} else {
+							state->result = 0;
 						}
-					} else {
+					} else if (is_active_buckets (unit)) {
 						Parse_Error (*ptokens, unit->pos, "empty subscript");
+						state->result = 0;
+					} else {
 						state->result = 0;
 					}
 				} else {
@@ -751,12 +785,16 @@ void	parse_expr_rec (struct unit *unit, char **ptokens, uint *phead, struct expr
 						} else {
 							*phead = link_expr_op (unit, get_expr (unit, *phead), *phead, get_expr (unit, expr_index), expr_index);
 						}
-					} else {
+					} else if (is_active_buckets (unit)) {
 						Parse_Error (*ptokens, unit->pos, "unexpected token [%s]", *ptokens);
 						state->result = 0;
+					} else {
+						state->result = 0;
 					}
-				} else {
+				} else if (is_active_buckets (unit)) {
 					Parse_Error (*ptokens, unit->pos, "cannot parse tyoe");
+					state->result = 0;
+				} else {
 					state->result = 0;
 				}
 			} else {
@@ -784,8 +822,10 @@ void	parse_expr_rec (struct unit *unit, char **ptokens, uint *phead, struct expr
 					Assert (*phead);
 					*phead = link_expr_op (unit, get_expr (unit, *phead), *phead, expr, expr_index);
 					*ptokens = next_token (*ptokens, &unit->pos);
-				} else {
+				} else if (is_active_buckets (unit)) {
 					Parse_Error (*ptokens, unit->pos, "binary op on incomplete expr tree");
+					state->result = 0;
+				} else {
 					state->result = 0;
 				}
 			}
@@ -849,10 +889,31 @@ void	parse_expr_rec (struct unit *unit, char **ptokens, uint *phead, struct expr
 			state->is_incomplete = 0;
 			state->last_cast_index = 0;
 		}
+	} else if (state->is_incomplete && (*ptokens)[-1] == Token (character)) {
+		uint	expr_index;
+
+		expr_index = make_expr_char_constant (unit, (unsigned char) (*ptokens)[0]);
+		if (expr_index) {
+			if (*phead) {
+				*phead = link_expr_op (unit, get_expr (unit, *phead), *phead, get_expr (unit, expr_index), expr_index);
+			} else {
+				*phead = expr_index;
+			}
+		} else {
+			state->result = 0;
+		}
+		if (state->result) {
+			*ptokens = next_token (*ptokens, &unit->pos);
+			state->is_post_value = 1;
+			state->is_incomplete = 0;
+			state->last_cast_index = 0;
+		}
 	} else if (state->is_post_value || !*phead || state->last_cast_index) {
 		state->is_missing_token = 1;
-	} else {
+	} else if (is_active_buckets (unit)) {
 		Parse_Error (*ptokens, unit->pos, "unexpected token");
+		state->result = 0;
+	} else {
 		state->result = 0;
 	}
 }
@@ -879,12 +940,53 @@ int		parse_expr (struct unit *unit, char **ptokens, uint *out) {
 			cast->typeinfo.index = 0;
 			cast->typeinfo.lib_index = 0;
 			state.result = 1;
-		} else {
+		} else if (is_active_buckets (unit)) {
 			Parse_Error (*ptokens, unit->pos, "expr parsing is ended with incomplete expr tree");
+			state.result = 0;
+		} else {
 			state.result = 0;
 		}
 	}
 	return (state.result);
+}
+
+int		try_to_parse_expr (struct unit *unit, char *tokens) {
+	int				result;
+	struct position	pos;
+	uint			index;
+	struct buckets	*buckets;
+
+	buckets = unit->buckets;
+	unit->buckets = &unit->temp_buckets;
+	pos = unit->pos;
+	result = parse_expr (unit, &tokens, &index);
+	unit->pos = pos;
+	unit->buckets = buckets;
+	if (buckets != &unit->temp_buckets) {
+		clear_buckets (&unit->temp_buckets);
+	}
+	return (result);
+}
+
+int		try_to_parse_expr_ended_by_token (struct unit *unit, char *tokens, int token_type, const char *token_value) {
+	int				result;
+	struct position	pos;
+	uint			index;
+	struct buckets	*buckets;
+
+	buckets = unit->buckets;
+	unit->buckets = &unit->temp_buckets;
+	pos = unit->pos;
+	result = parse_expr (unit, &tokens, &index);
+	unit->pos = pos;
+	unit->buckets = buckets;
+	if (buckets != &unit->temp_buckets) {
+		clear_buckets (&unit->temp_buckets);
+	}
+	if (result) {
+		result = (tokens[-1] == token_type && 0 == strcmp (tokens, token_value));
+	}
+	return (result);
 }
 
 void	print_expr (struct unit *unit, uint head_index, FILE *file) {
@@ -930,10 +1032,10 @@ void	print_expr (struct unit *unit, uint head_index, FILE *file) {
 			} else {
 				fprintf (file, "alignof [");
 			}
-			print_type (unit, head->op.forward, file);
+			print_type (unit, head->op.backward, file);
 			fprintf (file, "]");
 		} else if (head->op.type == OpType (sizeof) || head->op.type == OpType (alignof)) {
-			if (head->op.type == OpType (typesizeof)) {
+			if (head->op.type == OpType (sizeof)) {
 				fprintf (file, "sizeof ");
 			} else {
 				fprintf (file, "alignof ");
@@ -990,6 +1092,57 @@ void	print_expr (struct unit *unit, uint head_index, FILE *file) {
 		token = head->string.token;
 		unescape_string (token, string, sizeof string, &size);
 		fprintf (file, "\"%s\"", string);
+	} else if (head->type == ExprType (macrocall)) {
+		struct decl	*decl;
+
+		decl = get_decl (unit, head->macrocall.instance);
+		if (decl->define.macro.expr_params) {
+			fprintf (file, "%s (", decl->name);
+			print_expr (unit, decl->define.macro.expr_params, file);
+			fprintf (file, ")");
+		} else {
+			fprintf (file, "%s ()", decl->name);
+		}
+	} else if (head->type == ExprType (enum)) {
+		struct decl	*decl;
+		struct unit	*decl_unit;
+
+		if (is_lib_index (head->enumt.accessor_decl)) {
+			decl_unit = get_lib (get_lib_index (head->enumt.accessor_decl));
+		} else {
+			decl_unit = unit;
+		}
+		decl = get_decl (decl_unit, unlib_index (head->enumt.accessor_decl));
+		fprintf (file, "%s", decl->name);
+		if (head->enumt.lib_index) {
+			decl_unit = get_lib (head->enumt.lib_index);
+		} else {
+			decl_unit = unit;
+		}
+		decl = get_decl (decl_unit, head->enumt.decl);
+		fprintf (file, " (%s)", decl->name);
+	} else if (head->type == ExprType (table)) {
+		struct decl	*decl;
+		struct unit	*decl_unit;
+
+		if (is_lib_index (head->enumt.accessor_decl)) {
+			decl_unit = get_lib (get_lib_index (head->enumt.accessor_decl));
+		} else {
+			decl_unit = unit;
+		}
+		decl = get_decl (decl_unit, unlib_index (head->enumt.accessor_decl));
+		fprintf (file, "%s", decl->name);
+		if (head->enumt.decl) {
+			if (head->enumt.lib_index) {
+				decl_unit = get_lib (get_lib_index (head->enumt.lib_index));
+			} else {
+				decl_unit = unit;
+			}
+			decl = get_decl (unit, head->enumt.decl);
+			fprintf (file, ".%s", decl->name);
+		} else {
+			fprintf (file, ".name");
+		}
 	} else {
 		Error ("unknown %d %u", head->type, head_index);
 	}

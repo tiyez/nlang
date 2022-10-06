@@ -1,0 +1,24 @@
+
+#manifest {
+	libs {
+		"@cstd.n";
+	}
+	expose all;
+}
+
+#macro Error (...) {
+	fprintf (stderr, "%s(%d): error: ", __Filename, __Line);
+	fprintf (stderr, ...);
+	fprintf (stderr, "\n");
+}
+
+#macro Debug (...) {
+	fprintf (stderr, "%s(%d): debug: ", __Filename, __Line);
+	fprintf (stderr, ...);
+	fprintf (stderr, "\n");
+}
+
+
+
+
+

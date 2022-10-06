@@ -31,7 +31,7 @@
 #define Prepare_Array(accessor, tofit) Prepare_Array_Sized (accessor, sizeof *(accessor), tofit)
 
 #define Free_Array(accessor) \
-	((accessor) ? (free ((usize *) (accessor) - 2), 1) : 1)
+	((accessor) ? (free ((usize *) (accessor) - 2), (accessor) = 0, 1) : 1)
 
 #define Push_Array_Sized(accessor, elsize) \
 	(memset (Get_Array_End_Sized_ (accessor, elsize), 0, elsize), \
@@ -45,6 +45,12 @@
 	Terminate_Array (accessor), \
 	Get_Array_Last_ (accessor))
 
+#define Push_Array_N_Sized(accessor, elsize, count) \
+	(memset (Get_Array_End_Sized_ (accessor, elsize), 0, (elsize) * (count)), \
+	Get_Array_Count_ (accessor) += (count), \
+	Terminate_Array_Sized (accessor, elsize), \
+	(void *) ((unsigned char *) Get_Array_End_Sized_ (accessor, elsize) - (elsize) * (count)))
+
 #define Push_Array_N(accessor, count) \
 	(memset (Get_Array_End_ (accessor), 0, sizeof *(accessor) * (count)), \
 	Get_Array_Count_ (accessor) += (count), \
@@ -55,7 +61,10 @@
 	(Get_Array_Count_ (accessor) -= 1, Terminate_Array (accessor))
 
 #define Clear_Array(accessor) \
-	((accessor) ? (Get_Array_Count_ (accessor) = 0) : 0)
+	((accessor) ? (Get_Array_Count_ (accessor) = 0, Terminate_Array (accessor)) : 0)
+
+#define Clear_Array_Sized(accessor, elsize) \
+	((accessor) ? (Get_Array_Count_ (accessor) = 0, Terminate_Array_Sized (accessor, elsize)) : 0)
 
 #define Top_From_Array(accessor) (Get_Array_End_ (accessor) - 1)
 
@@ -125,16 +134,25 @@ int		_expand_array(void **pptr);
 	Bucket it's a array of pointers to fixed array;
 */
 
-static inline int		_prepare_bucket (void ***pptr, usize elem_size, usize tofit) {
+static inline int		_prepare_bucket (void ***pptr, usize elem_size, usize tofit, int is_continuous) {
 	int		result;
 	void	**ptr = *pptr;
 
 	if (ptr) {
 		void	**inptr;
 
-		inptr = ptr;
-		while (*inptr && !Is_Fit_To_Array_Sized (*inptr, elem_size, tofit)) {
-			inptr += 1;
+		if (is_continuous) {
+			inptr = Get_Array_Last_ (ptr);
+			Assert (*inptr);
+			if (!Is_Fit_To_Array_Sized (*inptr, elem_size, tofit)) {
+				inptr += 1;
+				Assert (!*inptr);
+			}
+		} else {
+			inptr = ptr;
+			while (*inptr && !Is_Fit_To_Array_Sized (*inptr, elem_size, tofit)) {
+				inptr += 1;
+			}
 		}
 		if (!*inptr) {
 			if (Prepare_Array (ptr, 1)) {
@@ -168,24 +186,31 @@ static inline int		_prepare_bucket (void ***pptr, usize elem_size, usize tofit) 
 	return (result);
 }
 
-#define Prepare_Bucket(acc, tofit) (_prepare_bucket ((void ***) &(acc), sizeof (**(acc)), tofit))
+#define Prepare_Bucket(acc, tofit) (_prepare_bucket ((void ***) &(acc), sizeof (**(acc)), tofit, 0))
+#define Prepare_Bucket_Continuous(acc, tofit) (_prepare_bucket ((void ***) &(acc), sizeof (**(acc)), tofit, 1))
 
-static inline void	*_push_bucket_n (void **ptr, usize elem_size, usize num) {
+static inline void	*_push_bucket_n (void **ptr, usize elem_size, usize num, int is_continuous) {
 	void	*result;
 	void	**inptr;
 
 	Assert (ptr);
-	inptr = ptr;
-	while (*inptr && !Is_Fit_To_Array_Sized (*inptr, elem_size, num)) {
-		inptr += 1;
+	if (is_continuous) {
+		inptr = Get_Array_Last_ (ptr);
+		Assert (Is_Fit_To_Array_Sized (*inptr, elem_size, num));
+	} else {
+		inptr = ptr;
+		while (*inptr && !Is_Fit_To_Array_Sized (*inptr, elem_size, num)) {
+			inptr += 1;
+		}
 	}
 	Assert (*inptr);
-	result = Push_Array_Sized (*inptr, elem_size);
+	result = Push_Array_N_Sized (*inptr, elem_size, num);
 	return (result);
 }
 
-#define Push_Bucket(acc) (_push_bucket_n ((void **) (acc), sizeof (**(acc)), 1))
-#define Push_Bucket_N(acc, num) (_push_bucket_n ((void **) (acc), sizeof (**(acc)), num))
+#define Push_Bucket(acc) (_push_bucket_n ((void **) (acc), sizeof (**(acc)), 1, 0))
+#define Push_Bucket_N(acc, num) (_push_bucket_n ((void **) (acc), sizeof (**(acc)), num, 0))
+#define Push_Bucket_N_Continuous(acc, num) (_push_bucket_n ((void **) (acc), sizeof (**(acc)), num, 1))
 
 static inline uint	_get_bucket_elem_index (void **ptr, usize elem_size, void *elem) {
 	void	**inptr;
@@ -332,3 +357,37 @@ static inline int	_get_bucket_ordindex (void **ptr, uint index) {
 }
 
 #define Get_Bucket_OrdIndex(acc, index) (_get_bucket_ordindex ((void **) (acc), index))
+
+static inline void	_free_bucket (void ***pptr) {
+	void	**ptr = *pptr;
+
+	if (ptr) {
+		void	**inptr;
+
+		inptr = ptr;
+		while (*inptr) {
+			Free_Array (*inptr);
+			inptr += 1;
+		}
+		Free_Array (ptr);
+		*pptr = 0;
+	}
+}
+
+#define Free_Bucket(acc) (_free_bucket ((void ***) &(acc)))
+
+static inline void	_clear_bucket (void **ptr, usize elem_size) {
+	if (ptr) {
+		void	**inptr;
+
+		inptr = ptr;
+		while (*inptr) {
+			Clear_Array_Sized (*inptr, elem_size);
+			inptr += 1;
+		}
+	}
+}
+
+#define Clear_Bucket(acc) (_clear_bucket ((void **) (acc), sizeof **(acc)))
+
+

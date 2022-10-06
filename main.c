@@ -169,11 +169,24 @@ enum typekind {
 	TypeKind (mod),
 	TypeKind (typeof),
 	TypeKind (deftype),
+	TypeKind (opaque),
 	TypeKind (internal),
 };
 
+#define Internal_TypeKind(name) Internal_TypeKind_##name
+enum internal_typekind {
+	Internal_TypeKind (unknown),
+	Internal_TypeKind (basic),
+	Internal_TypeKind (struct),
+	Internal_TypeKind (enum),
+	Internal_TypeKind (union),
+	Internal_TypeKind (pointer),
+	Internal_TypeKind (array),
+	Internal_TypeKind (function),
+};
+
 const char	*g_typekind[] = {
-	"basic", "tag", "mod", "typeof", "deftype", "internal",
+	"basic", "tag", "mod", "typeof", "deftype", "opaque", "internal",
 };
 
 #define TypeMod(name) TypeMod_##name
@@ -230,6 +243,10 @@ struct type_deftype {
 	const char	*name;
 };
 
+struct type_opaque {
+	uint64	decl;
+};
+
 struct type_internal {
 	uint64	decl;
 };
@@ -260,6 +277,7 @@ struct type {
 		struct type_mod			mod;
 		struct type_typeof		typeof;
 		struct type_deftype		deftype;
+		struct type_opaque		opaque;
 		struct type_internal	internal;
 	};
 };
@@ -281,22 +299,43 @@ const char	*g_declkind[] = {
 	"var", "const", "alias", "tag", "func", "param", "block", "enum", "define",
 };
 
+#define Internal_DeclKind(name) Internal_DeclKind_##name
+enum internal_declkind {
+	Internal_DeclKind (unknown),
+	Internal_DeclKind (var),
+	Internal_DeclKind (const),
+	Internal_DeclKind (alias),
+	Internal_DeclKind (enum_tag),
+	Internal_DeclKind (struct_tag),
+	Internal_DeclKind (union_tag),
+	Internal_DeclKind (func),
+	Internal_DeclKind (param),
+	Internal_DeclKind (block),
+	Internal_DeclKind (enum),
+	Internal_DeclKind (macro),
+	Internal_DeclKind (accessor),
+	Internal_DeclKind (external),
+	Internal_DeclKind (type),
+	Internal_DeclKind (builtin),
+};
+
 #define DefineKind(name) DefineKind_##name
 enum definekind {
 	DefineKind (macro),
 	DefineKind (accessor),
 	DefineKind (external),
 	DefineKind (type),
+	DefineKind (opaque),
 	DefineKind (visability),
 	DefineKind (funcprefix),
 	DefineKind (builtin),
 	DefineKind (assert),
 };
 static const int g_definekind_ordinal[] = {
-	1, 1, 1, 0, 0, 0, 1, 0,
+	1, 1, 1, 0, 0, 0, 0, 1, 0,
 };
 const char *g_definekind[] = {
-	"macro", "accessor", "external", "type", "visability", "funcprefix", "builtin", "assert",
+	"macro", "accessor", "external", "type", "opaque", "visability", "funcprefix", "builtin", "assert",
 };
 
 #define Visability(name) Visability_##name
@@ -313,9 +352,15 @@ enum builtin {
 	Builtin (flag),
 	Builtin (platform),
 	Builtin (option),
+	Builtin (value_property),
+	Builtin (compare_types),
+	Builtin (debug_print_expr_type),
 };
 static const char	*const g_builtin[] = {
-	"__Flag", "__Platform", "__Option",
+	"__Flag", "__Platform", "__Option", "__Value_Property", "__Compare_Types", "__Debug_Print_Expr_Type",
+};
+const int	g_builtin_params_num[] = {
+	1, 1, 1, 2, 2, 1,
 };
 
 struct decl_const {
@@ -347,7 +392,6 @@ struct decl_block {
 };
 
 struct decl_enum {
-	uint	expr;
 	uint	params;
 };
 
@@ -361,6 +405,7 @@ struct decl_alias {
 
 struct decl_define_macro {
 	uint	param_scope;
+	uint	expr_params;
 	uint	scope;
 };
 
@@ -403,7 +448,7 @@ struct decl_define {
 struct decl {
 	uint			next;
 	const char		*name;
-	const char		*filename;
+	const char		*filepath;
 	int				line;
 	uint			type;
 	uint			is_in_process : 1;
@@ -433,9 +478,12 @@ enum flowtype {
 	FlowType (expr),
 	FlowType (block),
 	FlowType (if),
-	FlowType (constif),
+	FlowType (static_if),
 	FlowType (while),
 	FlowType (dowhile),
+	FlowType (assert),
+	FlowType (static_assert),
+	FlowType (unreachable),
 	FlowType (init),
 };
 
@@ -465,7 +513,7 @@ struct flow_if {
 	uint	else_body;
 };
 
-struct flow_constif {
+struct flow_static_if {
 	uint	expr;
 	uint	flow_body;
 	uint	else_body;
@@ -479,6 +527,11 @@ struct flow_while {
 struct flow_dowhile {
 	uint	expr;
 	uint	flow_body;
+};
+
+struct flow_assert {
+	uint	expr;
+	char	*string;
 };
 
 struct flow_init {
@@ -495,9 +548,10 @@ struct flow {
 		struct flow_expr		expr;
 		struct flow_block		block;
 		struct flow_if			fif;
-		struct flow_constif		constif;
+		struct flow_static_if	static_if;
 		struct flow_while		fwhile;
 		struct flow_dowhile		dowhile;
+		struct flow_assert		assert;
 		struct flow_init		init;
 	};
 };
@@ -667,12 +721,14 @@ struct expriden {
 };
 
 struct exprenum {
+	uint64	accessor_decl;
 	uint	lib_index;
 	uint	decl;
 	uint	enum_decl;
 };
 
 struct exprtable {
+	uint64	accessor_decl;
 	uint	lib_index;
 	uint	decl;
 	uint	tag_decl;
@@ -789,6 +845,7 @@ struct typemember {
 
 #define TypeInfo_Kind(name) TypeInfo_Kind_##name
 enum typeinfo_kind {
+	TypeInfo_Kind (unknown),
 	TypeInfo_Kind (basic),
 	TypeInfo_Kind (struct),
 	TypeInfo_Kind (enum),
@@ -843,25 +900,17 @@ struct manifest {
 	const char			*options;
 	const char			*expose;
 	int					is_expose_all;
+	const char			*inserters;
 	const char			*cc_include_paths;
 	const char			*cc_includes;
+	const char			*cc_sources;
 	const char			*cc_libpaths;
 	const char			*cc_libs;
 	const char			*cc_flags;
 	const char			*cc_linker_flags;
 };
 
-struct unit {
-	uint				scope;
-	uint				link_decl_index;
-	const char			*filename;
-	const char			*function_name;
-	char				*filepath;
-	int					flags[Flag (_count)];
-	struct position		pos;
-	struct manifest		manifest;
-	struct path			*paths;
-	struct unit			**libptrs;
+struct buckets {
 	struct decl			**decls;
 	struct type			**types;
 	struct expr			**exprs;
@@ -869,8 +918,26 @@ struct unit {
 	struct scope		**scopes;
 	struct typeinfo		**typeinfos;
 	struct typemember	**typemembers;
+};
+
+struct unit {
+	uint				scope;
+	uint				link_decl_index;
+	uint				link_foreground_unit;
+	const char			*filename;
+	const char			*function_name;
+	const char			*filepath;
+	const char			*entry_filepath;
+	int					flags[Flag (_count)];
+	struct position		pos;
+	struct manifest		manifest;
+	struct path			*paths;
+	struct unit			**libptrs;
 	struct declref		*ordinaries;
 	struct declref		*tags;
+	struct buckets		*buckets;
+	struct buckets		active_buckets;
+	struct buckets		temp_buckets;
 };
 
 #define Platform(name) Platform_##name
@@ -887,11 +954,13 @@ struct tokenizer	g_tokenizer;
 struct path		**g_path = 0;
 struct unit		**g_libs = 0;
 struct unit		*g_unit = 0;
+struct unit		**g_unit_stack = 0;
 uint64			g_typeinfo_struct_decl = 0;
 int				g_is_build32 = 0;
 enum platform	g_platform = Platform (windows);
 int				g_shortname = 0;
 int				g_is_test = 0;
+int				g_show_build_command = 0;
 
 #define ValueCategory(name) ValueCategory_##name
 enum valuecategory {
@@ -939,6 +1008,71 @@ struct sizevalue {
 	unsigned	alignment;
 };
 
+/*
+#define Inst(name) Inst_##name
+enum inst {
+	Inst (end),
+
+	Inst (inc),
+	Inst (dec),
+	Inst (neg),
+	Inst (not),
+
+	Inst (add),
+	Inst (sub),
+	Inst (imul),
+	Inst (xor),
+	Inst (or),
+	Inst (and),
+
+	Inst (cmpz),
+
+
+
+
+
+	OpType (unary_plus),
+	OpType (unary_minus),
+	OpType (logical_not),
+	OpType (bitwise_not),
+	OpType (indirect),
+	OpType (cast),
+	OpType (address_of),
+	OpType (sizeof),
+	OpType (alignof),
+
+	OpType (multiply),
+	OpType (divide),
+	OpType (modulo),
+
+	OpType (add),
+	OpType (subtract),
+
+	OpType (left_shift),
+	OpType (right_shift),
+
+	OpType (less),
+	OpType (greater),
+	OpType (less_equal),
+	OpType (greater_equal),
+
+	OpType (equal),
+	OpType (not_equal),
+
+	OpType (bitwise_and),
+
+	OpType (bitwise_xor),
+
+	OpType (bitwise_or),
+
+	OpType (logical_and),
+
+	OpType (logical_or),
+
+
+};
+*/
+
 uint		make_scope (struct unit *unit, enum scopekind kind, uint parent);
 struct scope	*get_scope (struct unit *unit, uint scope_index);
 struct decl	*get_decl (struct unit *unit, uint index);
@@ -947,12 +1081,16 @@ uint	make_param_decl (struct unit *unit, uint scope_index, const char *name, uin
 uint	get_flow_index (struct unit *unit, struct flow *flow);
 void	print_expr (struct unit *unit, uint head_index, FILE *file);
 void	print_type (struct unit *unit, uint head, FILE *file);
-uint	make_type_copy (struct unit *unit, struct unit *decl_unit, uint type_index);
-uint	make_expr_copy (struct unit *unit, struct unit *decl_unit, uint expr_index);
+uint	make_type_copy (struct unit *unit, struct unit *decl_unit, uint type_index, uint scope_index);
+uint	make_expr_copy (struct unit *unit, struct unit *decl_unit, uint expr_index, uint scope_index);
 uint	make_scope_copy (struct unit *unit, struct unit *decl_unit, uint scope_index, uint parent_scope, uint param_scope);
 uint64	find_decl_in_table (struct unit *unit, const char *name, enum tagtype tagtype, int is_typedef);
 void	push_const_char_pointer_to_typestack (struct typestack *typestack);
 const char	*get_value_from_options (const char *options, const char *option_name);
+int		count_decls_in_scope (struct unit *unit, uint scope_index);
+int		count_flows_in_scope (struct unit *unit, uint scope_index);
+void	clear_buckets (struct buckets *buckets);
+void	free_buckets (struct buckets *buckets);
 
 int		is_lib_index (uint64 index) {
 	return ((index >> 32) != 0);
@@ -1004,6 +1142,7 @@ int		make_path_from_relative (char *path, const char *relto, const char *rel) {
 #include "typestack.c"
 #include "scope.c"
 #include "copy.c"
+#include "debug.c"
 #include "link.c"
 #include "macro.c"
 #include "typeinfo.c"
@@ -1037,9 +1176,9 @@ int		main (int argc, char *argv[]) {
 			ptr2 = argv[0];
 		}
 		if (0 == strcmp (ptr2, "main") || 0 == strcmp (ptr2, "main.exe")) {
-			strcpy (ptr, "release\\includes\\");
+			strcpy (ptr, "release\\libs\\");
 		} else {
-			strcpy (ptr, "includes\\");
+			strcpy (ptr, "libs\\");
 		}
 		// Debug ("include_path: %s", include_path);
 	} else {
@@ -1066,6 +1205,8 @@ int		main (int argc, char *argv[]) {
 			} else if (0 == strcmp (*argv + 1, "shortname")) {
 				flags[Flag (shortname)] = 1;
 				g_shortname = 1;
+			} else if (0 == strcmp (*argv + 1, "cl")) {
+				g_show_build_command = 1;
 			} else {
 				fprintf (stderr, "error: unknown flag '%s'\n", *argv);
 				exit (1);

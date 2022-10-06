@@ -6,6 +6,8 @@ ctest.c
 *.ilk
 *.pdb
 .vs
-release
+# release
 sln
+*.sln
 *.obj
+*build

@@ -1,0 +1,394 @@
+
+#manifest {
+	cc_includes {
+		"@stdlib.h";
+		"@stdarg.h";
+		"@stdio.h";
+		"@string.h";
+		"@math.h";
+		"@ctype.h";
+	}
+	expose all;
+}
+
+#external struct div_t {
+	quot	int;
+	rem		int;
+}
+#external struct ldiv_t {
+	quot	long;
+	rem		long;
+}
+#external struct lldiv_t {
+	quot	size;
+	rem		size;
+}
+
+#external EXIT_SUCCESS	int;
+#external EXIT_FAILURE	int;
+#external RAND_MAX		int;
+
+#external atof		double (string *const char);
+#external atoi		int (string *const char);
+#external atol		long (string *const char);
+#external atoll		size (string *const char);
+#external strtod	double (string *const char, endptr **char);
+#external strtof	float (string *const char, endptr **char);
+#external strtol	long (string *const char, endptr **char, base int);
+#external strtoll	size (string *const char, endptr **char, base int);
+#external strtoul	ulong (string *const char, endptr **char, base int);
+#external strtoull	usize (string *const char, endptr **char, base int);
+
+#external rand	int ();
+#external srand	void (seed uint);
+
+#external calloc	(*void) (num usize, size usize);
+#external free		void (memory *void);
+#external malloc	(*void) (size usize);
+#external realloc	(*void) (ptr *void, size usize);
+
+#external abort			void ();
+#external atexit		int (func *void ());
+#external at_quick_exit	int (func *void ());
+#external exit			void (status int);
+#external getenv		(*char) (name *const char);
+#external quick_exit	void (status int);
+#external system		int (command *const char);
+#external _Exit			void (status int);
+
+#external bsearch	(*void) (key *const void, base *const void, num usize, size usize, comp *int (left *const void, right *const void));
+#external qsort		void (base *void, num usize, size usize, comp *int (left *const void, right *const void));
+
+#external abs	int (value int);
+#external div	struct div_t (numer int, denom int);
+#external labs	long (value long);
+#external ldiv	struct ldiv_t (numer long, denom long);
+#external llabs	size (value size);
+#external lldiv	struct lldiv_t (numer size, denom size);
+
+#type va_list	*void;
+
+#opaque FILE;
+#type fpos_t	usize;
+
+#external stdin			*FILE;
+#external stdout		*FILE;
+#external stderr		*FILE;
+#external EOF			int;
+#external SEEK_SET		int;
+#external SEEK_CUR		int;
+#external SEEK_END		int;
+#external FILENAME_MAX	int;
+#external L_tmpnam		int;
+#external TMP_MAX		int;
+
+#external remove	int (filename *const char);
+#external rename	int (old_filename *const char, new_filename *const char);
+#external tmpfile	(*FILE) ();
+#external tmpnam	(*char) (str *char);
+
+#external fopen		(*FILE) (path *const char, mode *const char);
+#external freopen	(*FILE) (path *const char, mode *const char, file *FILE);
+#external fflush	int (file *FILE);
+#external fclose	int (file *FILE);
+#external setbuf	void (file *FILE, buffer *char);
+#external setvbuf	void (file *FILE, buffer *char, mode int, size usize);
+
+#external fprintf	int (file *FILE, format *const char, ...);
+#external fscanf	int (file *FILE, format *const char, ...);
+#external printf	int (format *const char, ...);
+#external scanf		int (format *const char, ...);
+#external snprintf	int (buf *char, size usize, format *const char, ...);
+#external sprintf	int (buf *char, format *const char, ...);
+#external sscanf	int (buf *const char, format *const char, ...);
+#external vfprintf	int (file *FILE, format *const char, args va_list);
+#external vfscanf	int (file *FILE, format *const char, args va_list);
+#external vprintf	int (format *const char, args va_list);
+#external vscanf	int (format *const char, args va_list);
+#external vsnprintf	int (buf *char, size usize, format *const char, args va_list);
+#external vsprintf	int (buf *char, format *const char, args va_list);
+#external vsscanf	int (buf *const char, format *const char, args va_list);
+
+#external fgetc		int (file *FILE);
+#external fgets		(*char) (str *char, num int, file *FILE);
+#external fputc		int (ch int, file *FILE);
+#external fputs		int (str *const char, file *FILE);
+#external getc		int (file *FILE);
+#external getchar	int ();
+#external gets		(*char) (str *char);
+#external putc		int (ch int, file *FILE);
+#external putchar	int (ch int);
+#external puts		int (str *const char);
+#external ungetc	int (ch int, file *FILE);
+
+#external fread		usize (data *void, size usize, count usize, file *FILE);
+#external fwrite	usize (data *const void, size usize, count usize, file *FILE);
+
+#external fgetpos	int (file *FILE, pos *fpos_t);
+#external fseek		int (file *FILE, offset long, origin int);
+#external fsetpos	int (file *FILE, pos *const fpos_t);
+#external ftell		long (file *FILE);
+#external rewind	void (file *FILE);
+
+#external clearerr	void (file *FILE);
+#external feof		int (file *FILE);
+#external ferror	int (file *FILE);
+#external perror	void (message *const char);
+
+#external memcpy	(*void) (dest *void, source *void, num usize);
+#external memmove	(*void) (dest *void, source *void, num usize);
+#external strcpy	(*char) (dest *char, source *const char);
+#external strncpy	(*char) (dest *char, source *const char, num usize);
+
+#external strcat	(*char) (dest *char, source *const char);
+#external strncat	(*char) (dest *char, source *const char, num usize);
+
+#external memcmp	int (left *const void, right *const void, num usize);
+#external strcmp	int (left *const char, right *const char);
+#external strcoll	int (left *const char, right *const char);
+#external strncmp	int (left *const char, right *const char, num usize);
+#external strxfrm 	usize (dest *char, source *const char, num usize);
+
+#external memchr	(*void) (data *void, value int, num usize);
+#external strchr	(*char) (string *char, char int);
+#external strcspn	usize (string1 *const char, string2 *const char);
+#external strpbrk 	(*char) (string1 *const char, string2 *const char);
+#external strrchr	(*char) (string *char, char int);
+#external strspn	usize (string1 *const char, string2 *const char);
+#external strstr	(*char) (string1 *char, string2 *const char);
+#external strtok	(*char) (string *char, delims *const char);
+
+#external memset	(*void) (data *void, value int, num usize);
+#external strerror	(*char) (error int);
+#external strlen	usize (string *const char);
+
+
+
+#external cos	double (value double);
+#external sin	double (value double);
+#external tan	double (value double);
+#external acos	double (value double);
+#external asin	double (value double);
+#external atan	double (value double);
+#external atan2	double (numer double, denom double);
+
+#external cosf		float (value float);
+#external sinf		float (value float);
+#external tanf		float (value float);
+#external acosf		float (value float);
+#external asinf		float (value float);
+#external atanf		float (value float);
+#external atan2f	float (numer float, denom float);
+
+#external cosh		double (value double);
+#external sinh		double (value double);
+#external tanh		double (value double);
+#external acosh		double (value double);
+#external asinh		double (value double);
+#external atanh		double (value double);
+#external atan2h	double (numer double, denom double);
+
+#external coshf		float (value float);
+#external sinhf		float (value float);
+#external tanhf		float (value float);
+#external acoshf	float (value float);
+#external asinhf	float (value float);
+#external atanhf	float (value float);
+#external atan2hf	float (numer float, denom float);
+
+#external exp		double (value double);
+#external frexp		double (value double, exp *int);
+#external ldexp		double (value double, exp int);
+#external log		double (value double);
+#external log10		double (value double);
+#external modf		double (value double, intpart *double);
+#external exp2		double (value double);
+#external expm1		double (value double);
+#external ilogb		int (value double);
+#external log1p		double (value double);
+#external log2		double (value double);
+#external logb		double (value double);
+#external scalbn	double (value double, n int);
+#external scalbln	double (value double, n long);
+
+#external expf		float (value float);
+#external frexpf	float (value float, exp *int);
+#external ldexpf	float (value float, exp int);
+#external logf		float (value float);
+#external log10f	float (value float);
+#external modff		float (value float, intpart *float);
+#external exp2f		float (value float);
+#external expm1f	float (value float);
+#external ilogbf	int (value float);
+#external log1pf	float (value float);
+#external log2f		float (value float);
+#external logbf		float (value float);
+#external scalbnf	float (value float, n int);
+#external scalblnf	float (value float, n long);
+
+#external pow	double (base double, exp double);
+#external sqrt	double (value double);
+#external cbrt	double (value double);
+#external hypot	double (x double, y double);
+
+#external powf		float (base float, exp float);
+#external sqrtf		float (value float);
+#external cbrtf		float (value float);
+#external hypotf	float (x float, y float);
+
+#external erf		double (value double);
+#external erfc		double (value double);
+#external tgamma	double (value double);
+#external lgamma	double (value double);
+
+#external erff		double (value double);
+#external erfcf		double (value double);
+#external tgammaf	double (value double);
+#external lgammaf	double (value double);
+
+#external ceil		double (value double);
+#external floor		double (value double);
+#external fmod		double (numer double, denom double);
+#external trunc		double (value double);
+#external round		double (value double);
+#external lround	long (value double);
+#external llround	usize (value double);
+#external rint		double (value double);
+#external lrint		long (value double);
+#external llrint	usize (value double);
+#external nearbyint	double (value double);
+#external remainder	double (numer double, denom double);
+#external remquo	double (numer double, denom double, quot *int);
+
+#external ceilf			float (value float);
+#external floorf		float (value float);
+#external fmodf			float (numer float, denom float);
+#external truncf		float (value float);
+#external roundf		float (value float);
+#external lroundf		long (value float);
+#external llroundf		usize (value float);
+#external rintf			float (value float);
+#external lrintf		long (value float);
+#external llrintf		usize (value float);
+#external nearbyintf	float (value float);
+#external remainderf	float (numer float, denom float);
+#external remquof		float (numer float, denom float, quot *int);
+
+#external copysign	double (x double, y double);
+#external nan		double (tagp *const char);
+#external nextafter	double (x double, y double);
+
+#external copysignf		float (x float, y float);
+#external nanf			float (tagp *const char);
+#external nextafterf	float (x float, y float);
+
+#external fdim	double (x double, y double);
+#external fmax	double (x double, y double);
+#external fmin	double (x double, y double);
+
+#external fdimf	float (x float, y float);
+#external fmaxf	float (x float, y float);
+#external fminf	float (x float, y float);
+
+#external fabs	double (value double);
+#external fma	double (x double, y double, z double);
+
+#external fabsf	float (value float);
+#external fmaf	float (x float, y float, z float);
+
+#external FP_INFINITE	int;
+#external FP_NAN		int;
+#external FP_ZERO		int;
+#external FP_SUBNORMAL	int;
+#external FP_NORMAL		int;
+
+#external INFINITY	float;
+#external NAN		float;
+
+#external fpclassify	int (value float);
+#external isfinite		int (value float);
+#external isinf			int (value float);
+#external isnan			int (value float);
+#external isnormal		int (value float);
+#external signbit		int (value float);
+
+#external isalnum	int (c int);
+#external isalpha	int (c int);
+#external isblank	int (c int);
+#external iscntrl	int (c int);
+#external isdigit	int (c int);
+#external isgraph	int (c int);
+#external islower	int (c int);
+#external isprint	int (c int);
+#external ispunct	int (c int);
+#external isspace	int (c int);
+#external isupper	int (c int);
+#external isxdigit	int (c int);
+#external tolower	int (c int);
+#external toupper	int (c int);
+
+
+
+/*
+ * This array is designed for mapping upper and lower case letter
+ * together for a case independent comparison.  The mappings are
+ * based upon ascii character sequences.
+ */
+_charmap	const uchar[] {
+	'\000'; '\001'; '\002'; '\003'; '\004'; '\005'; '\006'; '\007';
+	'\010'; '\011'; '\012'; '\013'; '\014'; '\015'; '\016'; '\017';
+	'\020'; '\021'; '\022'; '\023'; '\024'; '\025'; '\026'; '\027';
+	'\030'; '\031'; '\032'; '\033'; '\034'; '\035'; '\036'; '\037';
+	'\040'; '\041'; '\042'; '\043'; '\044'; '\045'; '\046'; '\047';
+	'\050'; '\051'; '\052'; '\053'; '\054'; '\055'; '\056'; '\057';
+	'\060'; '\061'; '\062'; '\063'; '\064'; '\065'; '\066'; '\067';
+	'\070'; '\071'; '\072'; '\073'; '\074'; '\075'; '\076'; '\077';
+	'\100'; '\141'; '\142'; '\143'; '\144'; '\145'; '\146'; '\147';
+	'\150'; '\151'; '\152'; '\153'; '\154'; '\155'; '\156'; '\157';
+	'\160'; '\161'; '\162'; '\163'; '\164'; '\165'; '\166'; '\167';
+	'\170'; '\171'; '\172'; '\133'; '\134'; '\135'; '\136'; '\137';
+	'\140'; '\141'; '\142'; '\143'; '\144'; '\145'; '\146'; '\147';
+	'\150'; '\151'; '\152'; '\153'; '\154'; '\155'; '\156'; '\157';
+	'\160'; '\161'; '\162'; '\163'; '\164'; '\165'; '\166'; '\167';
+	'\170'; '\171'; '\172'; '\173'; '\174'; '\175'; '\176'; '\177';
+	'\200'; '\201'; '\202'; '\203'; '\204'; '\205'; '\206'; '\207';
+	'\210'; '\211'; '\212'; '\213'; '\214'; '\215'; '\216'; '\217';
+	'\220'; '\221'; '\222'; '\223'; '\224'; '\225'; '\226'; '\227';
+	'\230'; '\231'; '\232'; '\233'; '\234'; '\235'; '\236'; '\237';
+	'\240'; '\241'; '\242'; '\243'; '\244'; '\245'; '\246'; '\247';
+	'\250'; '\251'; '\252'; '\253'; '\254'; '\255'; '\256'; '\257';
+	'\260'; '\261'; '\262'; '\263'; '\264'; '\265'; '\266'; '\267';
+	'\270'; '\271'; '\272'; '\273'; '\274'; '\275'; '\276'; '\277';
+	'\300'; '\341'; '\342'; '\343'; '\344'; '\345'; '\346'; '\347';
+	'\350'; '\351'; '\352'; '\353'; '\354'; '\355'; '\356'; '\357';
+	'\360'; '\361'; '\362'; '\363'; '\364'; '\365'; '\366'; '\367';
+	'\370'; '\371'; '\372'; '\333'; '\334'; '\335'; '\336'; '\337';
+	'\340'; '\341'; '\342'; '\343'; '\344'; '\345'; '\346'; '\347';
+	'\350'; '\351'; '\352'; '\353'; '\354'; '\355'; '\356'; '\357';
+	'\360'; '\361'; '\362'; '\363'; '\364'; '\365'; '\366'; '\367';
+	'\370'; '\371'; '\372'; '\373'; '\374'; '\375'; '\376'; '\377';
+}
+
+strncasecmp		int (s1 *const char, s2 *const char, n usize) {
+	u1			uchar;
+	u2			uchar;
+	continue	int;
+
+	continue = 1;
+	result = 0;
+	while continue && n != 0 {
+		u1 = [uchar] *s1;
+		s1 += 1;
+		u2 = [uchar] *s2;
+		s2 += 1;
+		if _charmap[u1] != _charmap[u2] {
+			result = _charmap[u1] - _charmap[u2];
+			continue = 0;
+		}
+		if u1 == '\0' {
+			result = 0;
+			continue = 0;
+		}
+		n -= 1;
+	}
+}

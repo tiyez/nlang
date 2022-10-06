@@ -32,7 +32,7 @@ do {fprintf (stderr, "%s(%d): error: ", g_shortname ? (unit)->filename : (unit)-
 #	define Parse_Error(tokens, pos, ...) \
 do {fprintf (stderr, "%s(%d): error: ", g_shortname ? (pos).filename : (pos).filepath, (pos).line);\
 	fprintf (stderr, __VA_ARGS__);\
-	fprintf (stderr, " (%s:%d)\n", __FILENAME__, __LINE__);\
+	fprintf (stderr, " (%s:%d)\n\n", __FILENAME__, __LINE__);\
 	print_tokens_until (get_beginning_token (tokens), 1, (pos).line, 0, "", Token (newline), stderr);\
 	if (get_token_length (tokens) > 1) fprintf (stderr, "     %*.s%.*s\n\n", (pos).column - 1, "", get_token_original_length (tokens), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");\
 	else fprintf (stderr, "     %*.s^\n\n", (pos).column - 1, "");\

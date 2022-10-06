@@ -1,0 +1,112 @@
+
+#manifest {
+	expose all;
+	cc_includes {
+		"@_head.h";
+		"@stdint.h";
+	}
+}
+
+enum typekind {
+	unknown;
+	basic;
+	struct;
+	enum;
+	union;
+	pointer;
+	array;
+	function;
+}
+#accessor TypeKind enum typekind;
+
+enum declkind {
+	unknown;
+	var;
+	const;
+	alias;
+	tag;
+	func;
+	param;
+	block;
+	enum;
+	macro;
+	accessor;
+	external;
+	type;
+	builtin;
+}
+#accessor DeclKind enum declkind;
+
+enum value_category {
+	lvalue;
+	rvalue;
+}
+#accessor ValueCategory enum value_category;
+
+enum typebasic {
+	void;
+	char;
+	schar;
+	uchar;
+	byte;
+	short;
+	ushort;
+	wchar;
+	int;
+	uint;
+	long;
+	ulong;
+	longlong;
+	ulonglong;
+	size;
+	usize;
+	int8;
+	uint8;
+	int16;
+	uint16;
+	int32;
+	uint32;
+	int64;
+	uint64;
+	float;
+	double;
+	longdouble;
+}
+#accessor TypeBasic enum typebasic;
+
+enum typequalifier (flag int) {
+	const const2,		0x1;
+	volatile,	0x2;
+	restrict,	0x4;
+}
+#accessor TypeQualifier enum typequalifier;
+
+struct typeinfo {
+	size		usize;
+	count		int;
+	qualifiers	enum typequalifier;
+	kind		enum typekind;
+	basic		enum typebasic;
+	tagname		*const char;
+	type		*const struct typeinfo;
+	members		*const struct typemember;
+}
+
+struct typemember {
+	name	*const char;
+	type	*const struct typeinfo;
+	members	*const struct typemember;
+	value	int;
+	offset	int;
+}
+
+#builtin __Flag;
+#builtin __Option;
+#builtin __Platform;
+#builtin __Value_Property;
+#builtin __Debug_Print_Expr_Type;
+
+is_member	int (member *const struct typemember) {
+	result = member->name != 0;
+}
+

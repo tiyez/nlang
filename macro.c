@@ -138,10 +138,22 @@ int		insert_macro_param_scope_flow (struct unit *unit, uint scope_index, uint fl
 		} else {
 			result = 0;
 		}
+	} else if (flow->type == FlowType (static_if)) {
+		if (insert_macro_param_exprs (unit, scope_index, flow->static_if.expr)) {
+			if (insert_macro_param_scope_flow (unit, scope_index, flow->static_if.flow_body)) {
+				result = insert_macro_param_scope_flow (unit, scope_index, flow->static_if.else_body);
+			} else {
+				result = 0;
+			}
+		} else {
+			result = 0;
+		}
 	} else if (flow->type == FlowType (block)) {
 		result = insert_macro_param_scope (unit, flow->block.scope);
 	} else if (flow->type == FlowType (expr)) {
 		result = insert_macro_param_exprs (unit, scope_index, flow->expr.index);
+	} else if (flow->type == FlowType (assert) || flow->type == FlowType (static_assert)) {
+		result = insert_macro_param_exprs (unit, scope_index, flow->assert.expr);
 	} else {
 		Unreachable ();
 	}
@@ -179,26 +191,39 @@ int		link_macro_scope_flow (struct unit *unit, uint eval_scope_index, uint scope
 	struct flow	*flow;
 
 	flow = get_flow (unit, flow_index);
+	flow->line = unit->pos.line;
 	if (flow->type == FlowType (if)) {
 		struct typestack	condstack;
 
-		init_typestack (&condstack);
+		init_typestack (&condstack, 0);
 		push_expr_path (unit, flow->fif.expr);
 		if (link_expr (unit, eval_scope_index, flow->fif.expr, 1, &condstack)) {
-			/* todo: check if condstack is ok for if statement */
-			result = 1;
+			struct type	*type;
+
+			type = get_typestack_head (&condstack);
+			if (is_pointer_type (type, 0) || is_type_integral (type)) {
+				result = 1;
+			} else {
+				Link_Error (unit, "if statement condition must have an integral or pointer type");
+				print_type_typestack (unit, &condstack);
+				result = 0;
+			}
 		} else {
 			result = 0;
 		}
 		pop_path (unit);
 		if (result) {
-			init_typestack (&condstack);
-			if (link_macro_scope_flow (unit, eval_scope_index, scope_index, flow->fif.flow_body, &condstack)) {
-				if (link_macro_scope_flow (unit, eval_scope_index, scope_index, flow->fif.else_body, typestack)) {
-					if (is_implicit_castable (unit, &condstack, typestack, 1)) {
+			init_typestack (&condstack, 0);
+			if (link_macro_scope_flow (unit, eval_scope_index, scope_index, flow->fif.flow_body, typestack)) {
+				if (link_macro_scope_flow (unit, eval_scope_index, scope_index, flow->fif.else_body, &condstack)) {
+					if (is_typestacks_compatible (typestack, &condstack)) {
+						result = 1;
+					} else if (is_typestacks_compatible (&condstack, typestack)) {
+						*typestack = condstack;
 						result = 1;
 					} else {
-						Link_Error (unit, "branches' types are incompatible");
+						Link_Error (unit, "branches types are incompatible");
+						print_left_right_typestacks (unit, &condstack, typestack);
 						result = 0;
 					}
 				} else {
@@ -208,15 +233,15 @@ int		link_macro_scope_flow (struct unit *unit, uint eval_scope_index, uint scope
 				result = 0;
 			}
 		}
-	} else if (flow->type == FlowType (constif)) {
-		struct typestack	condstack;
+	} else if (flow->type == FlowType (static_if)) {
+		struct typestack	condstack = {0};
 
-		init_typestack (&condstack);
-		if (link_expr (unit, scope_index, flow->constif.expr, 0, &condstack)) {
+		init_typestack (&condstack, 0);
+		if (link_expr (unit, scope_index, flow->static_if.expr, 0, &condstack)) {
 			struct evalvalue	value = {0};
 
 			/* check if type is ok for if statement */
-			if (eval_const_expr (unit, flow->constif.expr, &value)) {
+			if (eval_const_expr (unit, flow->static_if.expr, &value)) {
 				int		is_true;
 
 				if (value.type == EvalType (basic)) {
@@ -228,10 +253,10 @@ int		link_macro_scope_flow (struct unit *unit, uint eval_scope_index, uint scope
 						}
 						result = 1;
 					} else if (value.basic == BasicType (void)) {
-						Link_Error (unit, "value for constif condition has void type");
+						Link_Error (unit, "value for static_if condition has void type");
 						result = 0;
 					} else {
-						Link_Error (unit, "cannot convert floating point number to boolean in constif condition");
+						Link_Error (unit, "cannot convert floating point number to boolean in static_if condition");
 						result = 0;
 					}
 				} else if (value.type == EvalType (string)) {
@@ -244,7 +269,7 @@ int		link_macro_scope_flow (struct unit *unit, uint eval_scope_index, uint scope
 					is_true = value.typemember_index != 0;
 					result = 1;
 				} else {
-					Link_Error (unit, "invalid value for constif condition");
+					Link_Error (unit, "invalid value for static_if condition");
 					result = 0;
 				}
 				if (result) {
@@ -252,17 +277,84 @@ int		link_macro_scope_flow (struct unit *unit, uint eval_scope_index, uint scope
 
 					next = flow->next;
 					if (is_true) {
-						*flow = *get_flow (unit, flow->constif.flow_body);
+						*flow = *get_flow (unit, flow->static_if.flow_body);
 						flow->next = next;
 						result = link_macro_scope_flow (unit, eval_scope_index, scope_index, flow_index, typestack);
 					} else {
-						*flow = *get_flow (unit, flow->constif.else_body);
+						*flow = *get_flow (unit, flow->static_if.else_body);
 						flow->next = next;
 						result = link_macro_scope_flow (unit, eval_scope_index, scope_index, flow_index, typestack);
 					}
 				}
 			} else {
 				Link_Error (unit, "cannot evaluate constant expression");
+				result = 0;
+			}
+		} else {
+			result = 0;
+		}
+	} else if (flow->type == FlowType (assert) || flow->type == FlowType (static_assert)) {
+		struct typestack	condstack = {0};
+
+		init_typestack (&condstack, 0);
+		if (link_expr (unit, scope_index, flow->assert.expr, 0, &condstack)) {
+			if (is_pointer_type (get_typestack_head (&condstack), 0) || is_type_integral (get_typestack_head (&condstack))) {
+				if (flow->type == FlowType (static_assert)) {
+					struct evalvalue	value = {0};
+
+					if (eval_const_expr (unit, flow->assert.expr, &value)) {
+						int		is_true;
+
+						if (value.type == EvalType (basic)) {
+							if (is_basictype_integral (value.basic)) {
+								if (is_basictype_signed (value.basic)) {
+									is_true = value.value != 0;
+								} else {
+									is_true = value.uvalue != 0;
+								}
+								result = 1;
+							} else if (value.basic == BasicType (void)) {
+								Link_Error (unit, "value for static_assert condition has void type");
+								result = 0;
+							} else {
+								Link_Error (unit, "cannot convert floating point number to boolean in static_assert condition");
+								result = 0;
+							}
+						} else if (value.type == EvalType (string)) {
+							is_true = value.string != 0;
+							result = 1;
+						} else if (value.type == EvalType (typeinfo_pointer)) {
+							is_true = value.typeinfo_index != 0;
+							result = 1;
+						} else if (value.type == EvalType (typemember_pointer)) {
+							is_true = value.typemember_index != 0;
+							result = 1;
+						} else {
+							Link_Error (unit, "invalid value for static_assert condition");
+							result = 0;
+						}
+						if (result) {
+							if (is_true) {
+								result = 1;
+							} else {
+								Link_Error (unit, "Assertion failed");
+								fprintf (stderr, "Asserted expression: ");
+								print_expr (unit, flow->assert.expr, stderr);
+								fprintf (stderr, "\n");
+								result = 0;
+							}
+						}
+					} else {
+						Link_Error (unit, "cannot evaluate constant expression of static_assert statement");
+						result = 0;
+					}
+				} else {
+					result = 1;
+				}
+				init_typestack (typestack, typestack->is_sizeof_context);
+				push_basictype_to_typestack (typestack, BasicType (int), 0);
+			} else {
+				Link_Error (unit, "assert condition must have an integral or pointer type");
 				result = 0;
 			}
 		} else {
@@ -289,7 +381,7 @@ int		link_macro_scope (struct unit *unit, uint eval_scope_index, uint scope_inde
 	Assert (flow_index);
 	do {
 		push_flow_path (unit, scope_index, flow_index);
-		init_typestack (typestack);
+		init_typestack (typestack, typestack->is_sizeof_context);
 		result = link_macro_scope_flow (unit, eval_scope_index, scope_index, flow_index, typestack);
 		flow_index = get_flow (unit, flow_index)->next;
 		pop_path (unit);
@@ -303,6 +395,7 @@ int		link_macro_eval (struct unit *unit, uint scope_index, uint decl_index, uint
 	struct scope	*param_scope;
 
 	macro_decl = get_decl (unit, decl_index);
+	macro_decl->define.macro.expr_params = expr_index;
 	push_macro_path (unit, decl_index);
 	Assert (macro_decl->kind == DeclKind (define) && macro_decl->define.kind == DefineKind (macro));
 	param_scope = get_scope (unit, macro_decl->define.macro.param_scope);
@@ -325,7 +418,7 @@ int		link_macro_eval (struct unit *unit, uint scope_index, uint decl_index, uint
 					decl = get_decl (unit, expr->macroparam.decl);
 					Assert (decl->kind == DeclKind (param));
 					Assert (decl->param.expr);
-					copy_expr = make_expr_copy (unit, unit, decl->param.expr);
+					copy_expr = make_expr_copy (unit, unit, decl->param.expr, scope_index);
 					Assert (copy_expr);
 					*expr = *get_expr (unit, copy_expr);
 				}
@@ -367,6 +460,8 @@ int		link_macro_eval (struct unit *unit, uint scope_index, uint decl_index, uint
 	if (result) {
 		if (insert_macro_params (unit, decl_index)) {
 			if (link_macro_scope (unit, scope_index, macro_decl->define.macro.scope, typestack)) {
+				macro_decl->define.macro.param_scope = 0;
+				get_scope (unit, macro_decl->define.macro.scope)->param_scope = 0;
 				macro_decl->type = make_basic_type (unit, BasicType (void), 0);
 				insert_typestack_to_type (unit, macro_decl->type, typestack);
 				result = 1;
@@ -512,7 +607,7 @@ int		parse_macro_scope_flow (struct unit *unit, uint scope_index, char **ptokens
 		} else {
 			result = 0;
 		}
-	} else if (is_token (*ptokens, Token (identifier), "constif")) {
+	} else if (is_token (*ptokens, Token (identifier), "static_if")) {
 		uint	expr;
 
 		*ptokens = next_token (*ptokens, &unit->pos);
@@ -526,7 +621,7 @@ int		parse_macro_scope_flow (struct unit *unit, uint scope_index, char **ptokens
 
 						*ptokens = next_token (*ptokens, &unit->pos);
 						if (parse_macro_scope_flow (unit, scope_index, ptokens, &else_body)) {
-							*out = make_constif_flow (unit, expr, body, else_body, line);
+							*out = make_static_if_flow (unit, expr, body, else_body, line);
 							result = 1;
 						} else {
 							result = 0;
@@ -540,6 +635,54 @@ int		parse_macro_scope_flow (struct unit *unit, uint scope_index, char **ptokens
 				}
 			} else {
 				Parse_Error (*ptokens, unit->pos, "empty condition");
+				result = 0;
+			}
+		} else {
+			result = 0;
+		}
+	} else if (is_token (*ptokens, Token (identifier), "assert") || is_token (*ptokens, Token (identifier), "static_assert")) {
+		uint		expr_index;
+		int			is_static;
+		char		*start, *end;
+
+		is_static = 0 == strcmp (*ptokens, "static_assert");
+		*ptokens = next_token (*ptokens, &unit->pos);
+		start = *ptokens;
+		if (parse_expr (unit, ptokens, &expr_index)) {
+			if (is_token (*ptokens, Token (punctuator), ";")) {
+				if (expr_index) {
+					char	*string;
+
+					end = *ptokens;
+					string = g_tokenizer.current;
+					if (push_string_token (&g_tokenizer, 0, start, get_token_length (start), 0)) {
+						string = get_next_from_tokenizer (&g_tokenizer, string);
+						result = 1;
+						while (result && start != end) {
+							start = next_token (start, 0);
+							result = push_string_token (&g_tokenizer, get_token_offset (start), start, get_token_length (start), 1);
+						}
+						if (result) {
+							*ptokens = next_token (*ptokens, &unit->pos);
+							if (is_static) {
+								*out = make_static_assert_flow (unit, expr_index, string, line);
+							} else {
+								*out = make_assert_flow (unit, expr_index, string, line);
+							}
+						} else {
+							Parse_Error (*ptokens, unit->pos, "cannot create string of asserted expression");
+							result = 0;
+						}
+					} else {
+						Parse_Error (*ptokens, unit->pos, "cannot create string of asserted expression");
+						result = 0;
+					}
+				} else {
+					Parse_Error (*ptokens, unit->pos, "empty assert condition");
+					result = 0;
+				}
+			} else {
+				Parse_Error (*ptokens, unit->pos, "unexpected token");
 				result = 0;
 			}
 		} else {

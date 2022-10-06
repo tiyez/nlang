@@ -2,17 +2,17 @@
 int		allocate_typeinfo (struct unit *unit, enum typeinfo_kind kind, uint type_decl_index) {
 	int		index;
 
-	if (Prepare_Bucket (unit->typeinfos, 1)) {
+	if (Prepare_Bucket (unit->buckets->typeinfos, 1)) {
 		struct typeinfo	*typeinfo;
 
-		typeinfo = Push_Bucket (unit->typeinfos);
+		typeinfo = Push_Bucket (unit->buckets->typeinfos);
 		typeinfo->count = 1;
 		typeinfo->kind = kind;
 		typeinfo->typeinfo = 0;
 		typeinfo->members = 0;
 		typeinfo->size = 0;
 		typeinfo->type_decl_index = type_decl_index;
-		index = Get_Bucket_Element_Index (unit->typeinfos, typeinfo);
+		index = Get_Bucket_Element_Index (unit->buckets->typeinfos, typeinfo);
 	} else {
 		Error ("cannot prepare typeinfos array");
 		index = 0;
@@ -23,13 +23,13 @@ int		allocate_typeinfo (struct unit *unit, enum typeinfo_kind kind, uint type_de
 struct typeinfo	*get_typeinfo (struct unit *unit, uint index) {
 	struct typeinfo	*typeinfo;
 
-	Assert (Is_Bucket_Index_Valid (unit->typeinfos, index));
-	typeinfo = Get_Bucket_Element (unit->typeinfos, index);
+	Assert (Is_Bucket_Index_Valid (unit->buckets->typeinfos, index));
+	typeinfo = Get_Bucket_Element (unit->buckets->typeinfos, index);
 	return (typeinfo);
 }
 
 uint	get_typeinfo_index (struct unit *unit, struct typeinfo *typeinfo) {
-	return (Get_Bucket_Element_Index (unit->typeinfos, typeinfo));
+	return (Get_Bucket_Element_Index (unit->buckets->typeinfos, typeinfo));
 }
 
 uint	make_typeinfo_basic (struct unit *unit, enum basictype basic, uint type_index) {
@@ -83,13 +83,13 @@ uint	make_typeinfo_mod (struct unit *unit, enum typemod mod, uint type_index) {
 uint	make_typemember (struct unit *unit, uint decl_index) {
 	uint	index;
 
-	if (Prepare_Bucket (unit->typemembers, 1)) {
+	if (Prepare_Bucket (unit->buckets->typemembers, 1)) {
 		struct typemember	*member;
 
-		member = Push_Bucket (unit->typemembers);
+		member = Push_Bucket (unit->buckets->typemembers);
 		member->typeinfo = 0;
 		member->decl_index = decl_index;
-		index = Get_Bucket_Element_Index (unit->typemembers, member);
+		index = Get_Bucket_Element_Index (unit->buckets->typemembers, member);
 	} else {
 		index = 0;
 	}
@@ -97,22 +97,22 @@ uint	make_typemember (struct unit *unit, uint decl_index) {
 }
 
 struct typemember	*get_typemember (struct unit *unit, uint index) {
-	Assert (Is_Bucket_Index_Valid (unit->typemembers, index));
-	return (Get_Bucket_Element (unit->typemembers, index));
+	Assert (Is_Bucket_Index_Valid (unit->buckets->typemembers, index));
+	return (Get_Bucket_Element (unit->buckets->typemembers, index));
 }
 
 uint	get_typemember_index (struct unit *unit, struct typemember *member) {
-	return (Get_Bucket_Element_Index (unit->typemembers, member));
+	return (Get_Bucket_Element_Index (unit->buckets->typemembers, member));
 }
 
 int		get_number_of_typemembers (struct unit *unit, uint index) {
 	int		count;
 
 	count = 0;
-	Assert (Is_Bucket_Index_Valid (unit->typemembers, index));
-	while (index && Get_Bucket_Element (unit->typemembers, index)->decl_index) {
+	Assert (Is_Bucket_Index_Valid (unit->buckets->typemembers, index));
+	while (index && Get_Bucket_Element (unit->buckets->typemembers, index)->decl_index) {
 		count += 1;
-		index = Get_Next_Bucket_Index (unit->typemembers, index);
+		index = Get_Next_Bucket_Index (unit->buckets->typemembers, index);
 	}
 	Assert (index);
 	return (count);
@@ -172,7 +172,7 @@ int		link_typeinfo_scope (struct unit *unit, uint scope_index, uint *out) {
 				Assert (scope->tagtype == TagType (enum));
 				member = get_typemember (unit, member_index);
 				member->name = decl_member->name;
-				member->value = decl_member->enumt.expr;
+				member->value = 0;
 				member->offset = 0;
 				result = 1;
 			}
@@ -257,7 +257,7 @@ int		link_typeinfo_scope (struct unit *unit, uint scope_index, uint *out) {
 					} else {
 						Unreachable ();
 					}
-					member_index = Get_Next_Bucket_Index (unit->typemembers, member_index);
+					member_index = Get_Next_Bucket_Index (unit->buckets->typemembers, member_index);
 				} else {
 					member_index = 0;
 				}

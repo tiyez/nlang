@@ -45,7 +45,7 @@ usize	preprocess_text (char *content, char *end, int **nl_array) {
 	char	*read = content, *write = content;
 	struct newline_array	cnewline_array = {0}, *newline_array = &cnewline_array;
 	int		line = 1;
-	int		is_string = 0;
+	int		string_char = 0;
 
 	while (read < end) {
 		if (*read == '?' && read[1] == '?') {
@@ -70,10 +70,10 @@ usize	preprocess_text (char *content, char *end, int **nl_array) {
 			read += 2;
 			push_newline (newline_array, line);
 			line += 1;
-		} else if (*read == '\\' && read[1] == '\"') {
+		} else if (string_char && *read == '\\' && (read[1] == '\"' || read[1] == '\'')) {
 			*write++ = *read++;
 			*write++ = *read++;
-		} else if (!is_string && *read == '/' && read_next_char (read) == '/') {
+		} else if (!string_char && *read == '/' && read_next_char (read) == '/') {
 			int		offset = read_next_char_offset (read);
 
 			if (offset > 1) {
@@ -88,7 +88,7 @@ usize	preprocess_text (char *content, char *end, int **nl_array) {
 				read += offset;
 			}
 			*write++ = ' ';
-		} else if (!is_string && *read == '/' && read_next_char (read) == '*') {
+		} else if (!string_char && *read == '/' && read_next_char (read) == '*') {
 			int		offset = read_next_char_offset (read);
 
 			if (offset > 1) {
@@ -114,8 +114,12 @@ usize	preprocess_text (char *content, char *end, int **nl_array) {
 				line += 1;
 			}
 			*write++ = ' ';
-		} else if (*read == '\"') {
-			is_string = !is_string;
+		} else if ((!string_char && (*read == '\"' || *read == '\'')) || (string_char && string_char == *read)) {
+			if (string_char) {
+				string_char = 0;
+			} else {
+				string_char = *read;
+			}
 			*write++ = *read++;
 		} else if (*read == 0) {
 			*write++ = ' ';

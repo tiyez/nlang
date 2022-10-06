@@ -4,27 +4,27 @@
 struct type	*get_type (struct unit *unit, uint index) {
 	struct type	*type;
 
-	Assert (Is_Bucket_Index_Valid (unit->types, index));
-	type = Get_Bucket_Element (unit->types, index);
+	Assert (Is_Bucket_Index_Valid (unit->buckets->types, index));
+	type = Get_Bucket_Element (unit->buckets->types, index);
 	return (type);
 }
 
 uint	get_type_index (struct unit *unit, struct type *type) {
-	return (Get_Bucket_Element_Index (unit->types, type));
+	return (Get_Bucket_Element_Index (unit->buckets->types, type));
 }
 
 uint	make_pointer_type (struct unit *unit, uint subtype, int is_const) {
 	uint	index;
 
-	if (Prepare_Bucket (unit->types, 1)) {
+	if (Prepare_Bucket (unit->buckets->types, 1)) {
 		struct type	*type;
 
-		type = Push_Bucket (unit->types);
+		type = Push_Bucket (unit->buckets->types);
 		type->kind = TypeKind (mod);
 		type->mod.kind = TypeMod (pointer);
 		type->mod.forward = subtype;
 		type->flags.is_const = is_const;
-		index = Get_Bucket_Element_Index (unit->types, type);
+		index = Get_Bucket_Element_Index (unit->buckets->types, type);
 	} else {
 		Error ("cannot prepare array for types");
 		index = 0;
@@ -35,15 +35,15 @@ uint	make_pointer_type (struct unit *unit, uint subtype, int is_const) {
 uint	make_array_type (struct unit *unit, uint subtype, uint expr) {
 	uint	index;
 
-	if (Prepare_Bucket (unit->types, 1)) {
+	if (Prepare_Bucket (unit->buckets->types, 1)) {
 		struct type	*type;
 
-		type = Push_Bucket (unit->types);
+		type = Push_Bucket (unit->buckets->types);
 		type->kind = TypeKind (mod);
 		type->mod.kind = TypeMod (array);
 		type->mod.forward = subtype;
 		type->mod.expr = expr;
-		index = Get_Bucket_Element_Index (unit->types, type);
+		index = Get_Bucket_Element_Index (unit->buckets->types, type);
 	} else {
 		index = 0;
 	}
@@ -53,15 +53,15 @@ uint	make_array_type (struct unit *unit, uint subtype, uint expr) {
 uint	make_function_type (struct unit *unit, uint rettype, uint param_scope) {
 	uint	index;
 
-	if (Prepare_Bucket (unit->types, 1)) {
+	if (Prepare_Bucket (unit->buckets->types, 1)) {
 		struct type	*type;
 
-		type = Push_Bucket (unit->types);
+		type = Push_Bucket (unit->buckets->types);
 		type->kind = TypeKind (mod);
 		type->mod.kind = TypeMod (function);
 		type->mod.forward = rettype;
 		type->mod.param_scope = param_scope;
-		index = Get_Bucket_Element_Index (unit->types, type);
+		index = Get_Bucket_Element_Index (unit->buckets->types, type);
 	} else {
 		index = 0;
 	}
@@ -71,14 +71,14 @@ uint	make_function_type (struct unit *unit, uint rettype, uint param_scope) {
 uint	make_basic_type (struct unit *unit, enum basictype basictype, int is_const) {
 	uint	index;
 
-	if (Prepare_Bucket (unit->types, 1)) {
+	if (Prepare_Bucket (unit->buckets->types, 1)) {
 		struct type	*type;
 
-		type = Push_Bucket (unit->types);
+		type = Push_Bucket (unit->buckets->types);
 		type->kind = TypeKind (basic);
 		type->basic.type = basictype;
 		type->flags.is_const = is_const;
-		index = Get_Bucket_Element_Index (unit->types, type);
+		index = Get_Bucket_Element_Index (unit->buckets->types, type);
 	} else {
 		index = 0;
 	}
@@ -88,31 +88,35 @@ uint	make_basic_type (struct unit *unit, enum basictype basictype, int is_const)
 uint	make_tag_type (struct unit *unit, const char *name, enum tagtype tagtype) {
 	uint	index;
 
-	if (Prepare_Bucket (unit->types, 1)) {
+	if (Prepare_Bucket (unit->buckets->types, 1)) {
 		struct type	*type;
 
-		type = Push_Bucket (unit->types);
+		type = Push_Bucket (unit->buckets->types);
 		type->kind = TypeKind (tag);
 		type->tag.type = tagtype;
 		type->tag.name = name;
 		type->tag.decl = 0;
-		index = Get_Bucket_Element_Index (unit->types, type);
+		index = Get_Bucket_Element_Index (unit->buckets->types, type);
 	} else {
 		index = 0;
 	}
 	return (index);
 }
 
+int		is_opaque_tag_decl (struct decl *decl) {
+	return (0 == strcmp (decl->name, "_"));
+}
+
 uint	make_typeof_type (struct unit *unit, uint expr_index) {
 	uint	index;
 
-	if (Prepare_Bucket (unit->types, 1)) {
+	if (Prepare_Bucket (unit->buckets->types, 1)) {
 		struct type	*type;
 
-		type = Push_Bucket (unit->types);
+		type = Push_Bucket (unit->buckets->types);
 		type->kind = TypeKind (typeof);
 		type->typeof.expr = expr_index;
-		index = Get_Bucket_Element_Index (unit->types, type);
+		index = Get_Bucket_Element_Index (unit->buckets->types, type);
 	} else {
 		index = 0;
 	}
@@ -122,13 +126,13 @@ uint	make_typeof_type (struct unit *unit, uint expr_index) {
 uint	make_deftype_type (struct unit *unit, const char *name) {
 	uint	index;
 
-	if (Prepare_Bucket (unit->types, 1)) {
+	if (Prepare_Bucket (unit->buckets->types, 1)) {
 		struct type	*type;
 
-		type = Push_Bucket (unit->types);
+		type = Push_Bucket (unit->buckets->types);
 		type->kind = TypeKind (deftype);
 		type->deftype.name = name;
-		index = Get_Bucket_Element_Index (unit->types, type);
+		index = Get_Bucket_Element_Index (unit->buckets->types, type);
 	} else {
 		index = 0;
 	}
@@ -138,13 +142,13 @@ uint	make_deftype_type (struct unit *unit, const char *name) {
 uint	make_internal_type (struct unit *unit, uint decl) {
 	uint	index;
 
-	if (Prepare_Bucket (unit->types, 1)) {
+	if (Prepare_Bucket (unit->buckets->types, 1)) {
 		struct type	*type;
 
-		type = Push_Bucket (unit->types);
+		type = Push_Bucket (unit->buckets->types);
 		type->kind = TypeKind (internal);
 		type->internal.decl = decl;
-		index = Get_Bucket_Element_Index (unit->types, type);
+		index = Get_Bucket_Element_Index (unit->buckets->types, type);
 	} else {
 		index = 0;
 	}
@@ -216,12 +220,20 @@ int		parse_function_param_scope (struct unit *unit, char **ptokens, uint *out_sc
 
 			name = *ptokens;
 			*ptokens = next_token (*ptokens, &unit->pos);
-			if (parse_type (unit, ptokens, &type_index)) {
+			if (0 == strcmp (name, "void") && is_token (*ptokens, Token (punctuator), ")")) {
+				if (!get_scope (unit, *out_scope)->decl_begin) {
+					is_continue = 0;
+					result = 1;
+				} else {
+					Parse_Error (*ptokens, unit->pos, "unexpected token");
+					result = 0;
+				}
+			} else if (parse_type (unit, ptokens, &type_index)) {
 				make_param_decl (unit, *out_scope, name, type_index, line);
 				if (is_token (*ptokens, Token (punctuator), ")")) {
 					is_continue = 0;
 				} else if (!is_token (*ptokens, Token (punctuator), ",")) {
-					Error ("unexpected token");
+					Parse_Error (*ptokens, unit->pos, "unexpected token");
 					result = 0;
 				} else {
 					result = 1;
@@ -237,11 +249,11 @@ int		parse_function_param_scope (struct unit *unit, char **ptokens, uint *out_sc
 			if (is_token (*ptokens, Token (punctuator), ")")) {
 				is_continue = 0;
 			} else {
-				Error ("unexpected token");
+				Parse_Error (*ptokens, unit->pos, "unexpected token");
 				result = 0;
 			}
 		} else {
-			Error ("unexpected token %s", *ptokens);
+			Parse_Error (*ptokens, unit->pos, "unexpected token");
 			result = 0;
 		}
 	} while (result && is_continue);
@@ -286,8 +298,10 @@ int		parse_type_ (struct unit *unit, char **ptokens, uint *phead, struct typesta
 						Assert (*phead);
 						*phead = add_type_to_tree (unit, array_index, get_type (unit, array_index), *phead, get_type (unit, *phead));
 						result = 1;
+					} else if (is_active_buckets (unit)) {
+						Parse_Error (*ptokens, unit->pos, "unexpected token");
+						result = 0;
 					} else {
-						Error ("unexpected token");
 						result = 0;
 					}
 				} else {
@@ -327,19 +341,25 @@ int		parse_type_ (struct unit *unit, char **ptokens, uint *phead, struct typesta
 								*phead = inner_head;
 							}
 							result = 1;
+						} else if (is_active_buckets (unit)) {
+							Parse_Error (*ptokens, unit->pos, "empty type group");
+							result = 0;
 						} else {
-							Error ("empty type group");
 							result = 0;
 						}
+					} else if (is_active_buckets (unit)) {
+						Parse_Error (*ptokens, unit->pos, "unexpected token");
+						result = 0;
 					} else {
-						Error ("unexpected token [%s]", *ptokens);
 						result = 0;
 					}
 				} else {
 					result = 0;
 				}
+			} else if (is_active_buckets (unit)) {
+				Parse_Error (*ptokens, unit->pos, "unexpected token");
+				result = 0;
 			} else {
-				Error ("unexpected token");
 				result = 0;
 			}
 		}
@@ -368,7 +388,6 @@ int		parse_type_ (struct unit *unit, char **ptokens, uint *phead, struct typesta
 				basic_index = make_typeof_type (unit, expr_index);
 				result = 1;
 			} else {
-				Error ("cannot parse expr for typeof");
 				result = 0;
 			}
 		} else {
@@ -381,8 +400,10 @@ int		parse_type_ (struct unit *unit, char **ptokens, uint *phead, struct typesta
 					basic_index = make_tag_type (unit, *ptokens, tagtype);
 					*ptokens = next_token (*ptokens, &unit->pos);
 					result = 1;
+				} else if (is_active_buckets (unit)) {
+					Parse_Error (*ptokens, unit->pos, "unexpected token");
+					result = 0;
 				} else {
-					Error ("unexpected token");
 					result = 0;
 				}
 			} else if (is_basictype (*ptokens, &basictype)) {
@@ -407,8 +428,10 @@ int		parse_type_ (struct unit *unit, char **ptokens, uint *phead, struct typesta
 	} else if (state->is_post_basic) {
 		state->missing_token = 1;
 		result = 1;
+	} else if (is_active_buckets (unit)) {
+		Parse_Error (*ptokens, unit->pos, "unexpected token");
+		result = 0;
 	} else {
-		Error ("unexpected token");
 		result = 0;
 	}
 	return (result);
@@ -424,16 +447,68 @@ int		parse_type (struct unit *unit, char **ptokens, uint *out) {
 	while (result && !state.missing_token) {
 		result = parse_type_ (unit, ptokens, out, &state);
 	}
+	if (result && *out) {
+		if (get_type (unit, *out)->flags.is_group) {
+			if (is_active_buckets (unit)) {
+				Parse_Error (*ptokens, unit->pos, "root grouping of type is forbidden");
+				result = 0;
+			} else {
+				result = 0;
+			}
+		} else {
+			result = 1;
+		}
+	}
 	return (result);
+}
 
+int		try_to_parse_type (struct unit *unit, char *tokens) {
+	int				result;
+	struct position	pos;
+	uint			index;
+	struct buckets	*buckets;
+
+	buckets = unit->buckets;
+	unit->buckets = &unit->temp_buckets;
+	pos = unit->pos;
+	result = parse_type (unit, &tokens, &index);
+	unit->pos = pos;
+	unit->buckets = buckets;
+	if (buckets != &unit->temp_buckets) {
+		clear_buckets (&unit->temp_buckets);
+	}
+	return (result);
+}
+
+int		try_to_parse_type_ended_by_token (struct unit *unit, char *tokens, int token_type, const char *token_value) {
+	int				result;
+	struct position	pos;
+	uint			index;
+	struct buckets	*buckets;
+
+	buckets = unit->buckets;
+	unit->buckets = &unit->temp_buckets;
+	pos = unit->pos;
+	result = parse_type (unit, &tokens, &index);
+	unit->pos = pos;
+	unit->buckets = buckets;
+	if (buckets != &unit->temp_buckets) {
+		clear_buckets (&unit->temp_buckets);
+	}
+	if (result) {
+		result = (tokens[-1] == token_type && 0 == strcmp (tokens, token_value));
+	}
+	return (result);
 }
 
 void	print_type_gen (struct unit *unit, void *owner, uint head, FILE *file, struct type *(*get_type) (void *owner, uint index)) {
 	struct type	*type;
+	int			is_grouped;
 
 	Assert (head);
 	type = get_type (owner, head);
-	if (type->flags.is_group) {
+	is_grouped = type->flags.is_group;
+	if (is_grouped) {
 		fprintf (file, "(");
 	}
 	if (type->kind == TypeKind (basic)) {
@@ -456,6 +531,26 @@ void	print_type_gen (struct unit *unit, void *owner, uint head, FILE *file, stru
 		} else {
 			fprintf (file, "(typeof ())");
 		}
+	} else if (type->kind == TypeKind (deftype)) {
+		if (type->flags.is_const) {
+			fprintf (file, "const ");
+		}
+		fprintf (file, type->deftype.name);
+	} else if (type->kind == TypeKind (opaque)) {
+		struct decl	*decl;
+		struct unit	*decl_unit;
+
+		if (type->flags.is_const) {
+			fprintf (file, "const ");
+		}
+		if (is_lib_index (type->opaque.decl)) {
+			decl_unit = get_lib (get_lib_index (type->opaque.decl));
+		} else {
+			decl_unit = unit;
+		}
+		decl = get_decl (decl_unit, unlib_index (type->opaque.decl));
+		Assert (decl->kind == DeclKind (define) && decl->define.kind == DefineKind (opaque));
+		fprintf (file, decl->name);
 	} else if (type->kind == TypeKind (internal)) {
 		if (type->internal.decl) {
 			fprintf (file, "%s", get_decl (unit, type->internal.decl)->name);
@@ -520,7 +615,7 @@ void	print_type_gen (struct unit *unit, void *owner, uint head, FILE *file, stru
 	} else {
 		Unreachable ();
 	}
-	if (type->flags.is_group) {
+	if (is_grouped) {
 		fprintf (file, ")");
 	}
 }
@@ -604,8 +699,8 @@ int		is_type_integral (struct type *type) {
 	return ((type->kind == TypeKind (basic) && is_basictype_integral (type->basic.type)) || (type->kind == TypeKind (tag) && type->tag.type == TagType (enum)));
 }
 
-int		is_pointer_type (struct type *type) {
-	return (type->kind == TypeKind (mod) && (type->mod.kind == TypeMod (pointer) || type->mod.kind == TypeMod (array)));
+int		is_pointer_type (struct type *type, int is_sizeof_context) {
+	return (type->kind == TypeKind (mod) && (type->mod.kind == TypeMod (pointer) || (is_sizeof_context && type->mod.kind == TypeMod (array))));
 }
 
 

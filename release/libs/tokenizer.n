@@ -1,0 +1,1200 @@
+
+#manifest {
+	libs {
+		"@cstd.n";
+		"@memory.n";
+		"@basiclog.n";
+	}
+	options {
+		preprocessor 0;
+		include_path_special_token 0;
+		trigraph 0;
+		skip_newline 1;
+		line_directives 0;
+	}
+}
+
+/*
+	token format:
+
+	2 byte: token length (0 - 65535)
+	1 byte: token offset (0 - 255)
+	1 byte: token type (enum token)
+	n byte: token value        <- token pointer
+	1 byte: null terminator
+	2 byte: token length (0 - 65535, same as first byte)
+
+*/
+
+const Token_Header_Size = 4;
+const Token_Footer_Size = 3;
+
+#macro Calc_Token_Size (value_length) {
+	Token_Header_Size + value_length + Token_Footer_Size;
+}
+
+/*
+	token page format
+
+	token link: 2 pointers: 1. pointer to next page, 2. pointer to last token from prev page
+	content tokens
+	token link: 3 pointers: 1. pointer to next page, 2. pointer to this page. 3. size of this page
+
+*/
+
+const Token_Page_Header_Size = Calc_Token_Size (sizeof [*void] * 2);
+const Token_Page_Footer_Size = Calc_Token_Size (sizeof [*void] * 4);
+
+own_stpcpy	(*char) (dest restrict *char, source restrict *const char) {
+	while (*source) {
+		*dest = *source;
+		dest += 1;
+		source += 1;
+	}
+	*dest = 0;
+	result = dest;
+}
+
+struct tokenizer {
+	start_data	*char;
+	data		*char;
+	size		usize;
+	cap			usize;
+	current		*char;
+}
+
+enum token {
+	eof;
+	start;
+	newline;
+	identifier;
+	number;
+	punctuator;
+	string;
+	character;
+	path_global;
+	path_relative;
+	link;
+}
+#accessor Token enum token;
+
+struct position {
+	filename			*const char;
+	line				int;
+	column				int;
+	at_the_beginning	int;
+}
+
+is_string_token	int (token enum token) {
+	result = (token >= Token (string) && token <= Token (path_relative));
+}
+
+get_token_name	(*const char) (token enum token) {
+	result = Token.name[token];
+}
+
+is_token	int (token *const char, tkn enum token, string *const char) {
+	result = (token[-1] == tkn && 0 == strcmp (token, string));
+}
+
+push_tokenizer_byte	void (tokenizer *struct tokenizer, byte int) {
+	tokenizer->data[tokenizer->size] = byte;
+	tokenizer->size += 1;
+}
+
+push_tokenizer_2bytes	void (tokenizer *struct tokenizer, value int) {
+	push_tokenizer_byte (tokenizer, (value >> 8) & 0xFF);
+	push_tokenizer_byte (tokenizer, value & 0xFF);
+}
+
+push_tokenizer_bytes	void (tokenizer *struct tokenizer, bytes *const void, length usize) {
+	memcpy (tokenizer->data + tokenizer->size, bytes, length);
+	tokenizer->size += length;
+}
+
+push_token_header	void (tokenizer *struct tokenizer, length int, offset int, type int) {
+	push_tokenizer_2bytes (tokenizer, length);
+	push_tokenizer_byte (tokenizer, offset);
+	push_tokenizer_byte (tokenizer, type);
+}
+
+push_token_footer	void (tokenizer *struct tokenizer, length int) {
+	push_tokenizer_byte (tokenizer, 0);
+	push_tokenizer_2bytes (tokenizer, length);
+}
+
+push_token_bytes	(*void) (tokenizer *struct tokenizer, offset int, type int, ptr *const void, length usize) {
+	push_token_header (tokenizer, length, offset, type);
+	result = tokenizer->data + tokenizer->size;
+	push_tokenizer_bytes (tokenizer, ptr, length);
+	push_token_footer (tokenizer, length);
+}
+
+prepare_tokenizer	int (tokenizer *struct tokenizer, tofit usize) {
+	/* todo: can fail when tofit > Memory_Page */
+	if tokenizer->size + tofit + Token_Page_Footer_Size > tokenizer->cap {
+		var memory	*void;
+		var old_cap	usize;
+
+		old_cap = tokenizer->cap;
+		assert (tokenizer->cap == 0 || tokenizer->size + Token_Page_Footer_Size <= tokenizer->cap);
+		memory = expand_array (0, &tokenizer->cap);
+		if memory {
+			var last_token	*void;
+			var pointers	(*void)[2];
+
+			last_token = 0;
+			if !tokenizer->start_data {
+				tokenizer->start_data = memory;
+			}
+			if tokenizer->data {
+				var pointers	(*void)[4];
+
+				pointers[0] = memory;
+				pointers[1] = tokenizer->data;
+				pointers[2] = [*void] tokenizer->size;
+				pointers[3] = [*void] old_cap;
+				*[**void] (tokenizer->data + Token_Header_Size) = memory;
+				last_token = push_token_bytes (tokenizer, 0, Token (link), pointers, sizeof pointers);
+			}
+			pointers[0] = 0;
+			pointers[1] = last_token;
+			tokenizer->data = memory;
+			tokenizer->size = 0;
+			tokenizer->current = push_token_bytes (tokenizer, 0, Token (link), pointers, sizeof pointers);
+			assert (tokenizer->size == Token_Page_Header_Size);
+			result = 1;
+		} else {
+			Error ("cannot allocate memory for tokenizer");
+			result = 0;
+		}
+	} else {
+		result = 1;
+	}
+}
+
+set_token_offset	void (token *char, offset int) {
+	token[-2] = offset & 0xFF;
+}
+
+set_token_length	void (token *char, length int) {
+	token[-3] = length & 0xFF;
+	token[-4] = (length >> 8) & 0xFF;
+	(token + length + 1)[0] = (length >> 8) & 0xFF;
+	(token + length + 1)[1] = length & 0xFF;
+}
+
+get_token_offset	int (token *const char) {
+	result = [uchar] token[-2];
+}
+
+get_token_length	int (token *const char) {
+	var second_length	int;
+
+	result = [uchar] token[-3];
+	result += [uchar] token[-4] << 8;
+	second_length = [uchar] (token + result + 1)[0] << 8;
+	second_length += [uchar] (token + result + 1)[1];
+	assert (result == second_length);
+}
+
+push_token	int (tokenizer *struct tokenizer, offset int, token int, data *const char, length usize) {
+	if prepare_tokenizer (tokenizer, Calc_Token_Size (length)) {
+		tokenizer->current = push_token_bytes (tokenizer, offset, token, data, length);
+		result = 1;
+	} else {
+		result = 0;
+	}
+}
+
+push_newline_token	int (tokenizer *struct tokenizer, offset int) {
+	if tokenizer->current && tokenizer->current[-1] == Token (newline) && [uchar] tokenizer->current[0] < 0x7f {
+		*[*uchar] tokenizer->current += 1;
+		result = 1;
+	} else {
+		if prepare_tokenizer (tokenizer, Calc_Token_Size (1)) {
+			var value	int;
+
+			value = 1;
+			tokenizer->current = push_token_bytes (tokenizer, offset, Token (newline), &value, 1);
+			result = 1;
+		} else {
+			result = 0;
+		}
+	}
+}
+
+push_compiled_newline_token	int (tokenizer *struct tokenizer, count int, offset int) {
+	result = 1;
+	/* todo: unwrap loop */
+	while count > 0 && result {
+		result = push_newline_token (tokenizer, offset);
+		offset = 0;
+		count -= 1;
+	}
+}
+
+push_string_token	int (tokenizer *struct tokenizer, offset int, string *const char, length usize, push_at_existing int) {
+	if push_at_existing && tokenizer->current && tokenizer->current[-1] == Token (string) {
+		var old_length	int;
+		var memory		*char;
+
+		old_length = get_token_length (tokenizer->current);
+		offset = get_token_offset (tokenizer->current);
+		memory = malloc (old_length + length);
+		memcpy (memory, tokenizer->current, old_length);
+		revert_token (tokenizer);
+		if prepare_tokenizer (tokenizer, Calc_Token_Size (length + old_length)) {
+			push_token_header (tokenizer, length + old_length, offset, Token (string));
+			tokenizer->current = tokenizer->data + tokenizer->size;
+			push_tokenizer_bytes (tokenizer, memory, old_length);
+			push_tokenizer_bytes (tokenizer, string, length);
+			push_token_footer (tokenizer, length + old_length);
+			assert (get_token_length (tokenizer->current) >= 0);
+			result = 1;
+		} else {
+			result = 0;
+		}
+		free (memory);
+	} else if prepare_tokenizer (tokenizer, Calc_Token_Size (length)) {
+		tokenizer->current = push_token_bytes (tokenizer, offset, Token (string), string, length);
+		assert (get_token_length (tokenizer->current) >= 0);
+		result = 1;
+	} else {
+		result = 0;
+	}
+}
+
+init_pos	void (pos *struct position, filename *const char) {
+	memset (pos, 0, sizeof *pos);
+	pos->filename = filename;
+	pos->line = 1;
+	pos->column = 1;
+	pos->at_the_beginning = 1;
+}
+
+next_const_token_ex	(*const char) (tokens *const char, pos *struct position, skip_nl int) {
+	var old		*const char;
+	var length	int;
+
+	if pos {
+		if tokens[-1] == Token (newline) {
+			pos->line += tokens[0];
+			pos->column = 1;
+			pos->at_the_beginning = 1;
+		} else {
+			pos->column += get_token_length (tokens);
+			pos->at_the_beginning = 0;
+		}
+	}
+	length = get_token_length (tokens);
+	tokens += length;
+	assert (*tokens == 0);
+	tokens += Token_Footer_Size;
+	tokens += Token_Header_Size;
+	if tokens[-1] == Token (link) {
+		tokens = *[**void] tokens;
+		assert (tokens);
+		tokens += Token_Page_Header_Size;
+		tokens += Token_Header_Size;
+	}
+	if pos && tokens[-1] != Token (newline) {
+		pos->column += get_token_offset (tokens);
+	}
+	if skip_nl && tokens[-1] == Token (newline) {
+		tokens = next_const_token_ex (tokens, pos, skip_nl);
+	}
+	result = tokens;
+}
+
+next_const_token	(*const char) (tokens *const char, pos *struct position) {
+	result = next_const_token_ex (tokens, pos, __Option (skip_newline));
+}
+
+next_token_ex	(*char) (tokens *char, pos *struct position, skip_nl int) {
+	result = [*char] next_const_token_ex (tokens, pos, skip_nl);
+}
+
+next_token	(*char) (tokens *char, pos *struct position) {
+	result = [*char] next_const_token_ex (tokens, pos, __Option (skip_newline));
+}
+
+get_beginning_token	(*char) (tokens *char) {
+	var token	*char;
+
+	token = tokens;
+	do {
+		tokens = token;
+		token = prev_token (token);
+	} while (token && token[-1] != Token (start) && token[-1] != Token (newline));
+	result = tokens;
+}
+
+escape_symbol	uint (psource **const char) {
+	var source	*const char;
+
+	result = *source;
+	if *source == '\\' {
+		source += 1;
+		if *source == 'a'		result = '\a';
+		else if *source == 'b'	result = '\b';
+		else if *source == 'f'	result = '\f';
+		else if *source == 'n'	result = '\n';
+		else if *source == 'r'	result = '\r';
+		else if *source == 't'	result = '\t';
+		else if *source == 'v'	result = '\v';
+		else if *source == '\\'	result = '\\';
+		else if *source == '\''	result = '\'';
+		else if *source == '"'	result = '"';
+		else if *source == '?'	result = '\?';
+		else if *source >= '0' && *source <= '7' {
+			var value	uint;
+
+			value = *source - '0';
+			if source[1] >= '0' && source[1] <= '7' {
+				source += 1;
+				value <<= 3;
+				value += *source - '0';
+				if source[1] >= '0' && source[1] <= '7' {
+					source += 1;
+					value <<= 3;
+					value += *source - '0';
+				}
+			}
+			result = [char] value;
+		} else if *source == 'x' {
+			var value	uint;
+
+			while isxdigit (source[1]) {
+				source += 1;
+				value *= 16;
+				if *source >= '0' && *source <= '9' {
+					value += *source - '0';
+				} else if *source >= 'a' && *source <= 'f' {
+					value += 10 + (*source - 'a');
+				} else if *source >= 'A' && *source <= 'F' {
+					value += 10 + (*source - 'A');
+				}
+			}
+			result = value;
+		} else if *source == 'u' {
+			Error ("Unicode scape sequence is not implemented");
+			result = 0;
+		} else {
+			result = *source;
+		}
+		*psource = source;
+	} else {
+		result = *source;
+	}
+}
+
+unescape_symbol	void (ch int, pout **char) {
+	var out		*char;
+
+	out = *pout;
+	if ch == '\a'		{ out[0] = '\\'; out[1] = 'a'; out += 2; }
+	else if ch == '\b'	{ out[0] = '\\'; out[1] = 'b'; out += 2; }
+	else if ch == '\f'	{ out[0] = '\\'; out[1] = 'f'; out += 2; }
+	else if ch == '\n'	{ out[0] = '\\'; out[1] = 'n'; out += 2; }
+	else if ch == '\r'	{ out[0] = '\\'; out[1] = 'r'; out += 2; }
+	else if ch == '\t'	{ out[0] = '\\'; out[1] = 't'; out += 2; }
+	else if ch == '\v'	{ out[0] = '\\'; out[1] = 'v'; out += 2; }
+	else if ch == '\\'	{ out[0] = '\\'; out[1] = '\\'; out += 2; }
+	else if ch == '\''	{ out[0] = '\\'; out[1] = '\''; out += 2; }
+	else if ch == '\"'	{ out[0] = '\\'; out[1] = '\"'; out += 2; }
+	else if ch == '\?'	{ out[0] = '\\'; out[1] = '?'; out += 2; }
+	else {
+		if isprint (ch) || ch > 127 {
+			*out = ch;
+			out += 1;
+		} else {
+			*out = '\\';
+			out += 1;
+			if !ch {
+				*out = '0';
+				out += 1;
+			} else {
+				var oct		int;
+
+				oct = (ch >> 6) & 0x3;
+				*out = '0' + oct;
+				out += oct > 0;
+				oct = (ch >> 3) & 0x7;
+				*out = '0' + oct;
+				out += oct > 0;
+				*out = '0' + (ch & 0x7);
+			}
+		}
+	}
+	*pout = out;
+}
+
+get_first_token	(*char) (tokenizer *struct tokenizer) {
+	if tokenizer->start_data {
+		result = tokenizer->start_data + Token_Page_Header_Size + Token_Header_Size;
+		if result[-1] == Token (start) {
+			result = next_token (result, 0);
+		}
+	} else {
+		result = 0;
+	}
+}
+
+get_next_from_tokenizer		(*char) (tokenizer *struct tokenizer, token *char) {
+	if token {
+		if tokenizer->current == token {
+			result = 0;
+		} else {
+			result = next_token (token, 0);
+		}
+	} else {
+		result = get_first_token (tokenizer);
+	}
+}
+
+get_next_from_tokenizer_ex	(*char) (tokenizer *struct tokenizer, token *char, skip_nl int) {
+	if token {
+		if tokenizer->current == token {
+			result = 0;
+		} else {
+			result = next_token_ex (token, 0, skip_nl);
+		}
+	} else {
+		result = get_first_token (tokenizer);
+	}
+}
+
+end_tokenizer	int (tokenizer *struct tokenizer, offset int) {
+	if prepare_tokenizer (tokenizer, Calc_Token_Size (0)) {
+		tokenizer->current = push_token_bytes (tokenizer, offset, Token (eof), 0, 0);
+		result = 1;
+	} else {
+		result = 0;
+	}
+}
+
+start_tokenizer		int (tokenizer *struct tokenizer) {
+	if prepare_tokenizer (tokenizer, Calc_Token_Size (0)) {
+		tokenizer->current = push_token_bytes (tokenizer, 0, Token (start), 0, 0);
+		result = 1;
+	} else {
+		result = 0;
+	}
+}
+
+struct token_state {
+	line			int;
+	column			int;
+	offset			int;
+	tabsize			int;
+	check_include	int;
+	its_include		int;
+	its_implement	int;
+	nl_array		*int;
+	filename		*const char;
+}
+
+token_strings	(const *const char)[] {
+	"++"; "+="; "--"; "-="; "->"; "..."; "!="; "*="; "&&"; "&="; "/="; "%="; "<="; "<<="; "<<"; ">="; ">>="; ">>"; "^="; "|="; "||"; "=="; "##";
+	"<%"; "%>"; "<:"; ":>"; "%:%:"; "%:";
+	0;
+}
+
+make_token	int (tokenizer *struct tokenizer, state *struct token_state, pcontent **const char) {
+	var content		*const char;
+
+	content = *pcontent;
+	result = 1;
+	while *content && result && (isspace (*content) || *content <= 0x20) {
+		var spaces	usize;
+
+		if *content == '\t' {
+			if (state->column - 1) % state->tabsize > 0 {
+				spaces = state->tabsize - ((state->column - 1) % state->tabsize);
+			} else {
+				spaces = state->tabsize;
+			}
+		} else {
+			spaces = 1;
+		}
+		state->offset += spaces;
+		if *content == '\n' {
+			result = push_newline_token (tokenizer, state->offset);
+			while *state->nl_array && *state->nl_array == state->line && result {
+				result = push_newline_token (tokenizer, 0);
+				state->nl_array += 1;
+				state->line += 1;
+			}
+			state->line += 1;
+			state->column = 0;
+			spaces = 1;
+			state->offset = 0;
+			state->check_include = 0;
+		}
+		state->column += spaces;
+		content += 1;
+	}
+	if !*content || !result {
+	} else if isalpha (*content) || *content == '_' {
+		var start	*const char;
+
+		start = content;
+		do {
+			content += 1;
+		} while isalnum (*content) || *content == '_';
+		state->column += content - start;
+		push_token (tokenizer, state->offset, Token (identifier), start, content - start);
+		state->offset = 0;
+		static_if __Option (preprocessor) && __Option (include_path_special_token) {
+			if state->its_include && state->its_implement {
+				state->its_implement = 0;
+			} else if state->check_include {
+				state->its_include = 0;
+				state->its_implement = 0;
+				if 0 == strncmp (start, "include", content - start) || 0 == strcmp (start, "import", content - start) {
+					state->its_include = 1;
+				} else if 0 == strncmp (start, "implement", content - start) {
+					state->its_include = 1;
+					state->its_implement = 1;
+				}
+			}
+			state->check_include = 0;
+		}
+	} else if isdigit (*content) || (*content == '.' && isdigit (content[1])) {
+		var start	*const char;
+
+		content += (*content == '.');
+		do {
+			content += 1 + ((*content == 'e' || *content == 'E' || *content == 'p' || *content == 'P') && (content[1] == '+' || content[1] == '-'));
+		} while isalnum (*content) || *content == '_' || *content == '.';
+		push_token (tokenizer, state->offset, Token (number), start, content - start);
+		state->offset = 0;
+		state->column += content - start;
+		static_if __Option (preprocessor) && __Option (include_path_special_token) {
+			state->check_include = 0;
+			state->its_include = 0;
+			state->its_implement = 0;
+		}
+	} else if (*content == '"' || *content == '\'' || (__Option (preprocessor) && __Option (include_path_special_token) && state->its_include && *content == '<')) {
+		var buffer_memory	char[256];
+		var buffer			*char;
+		var end_symbol		char;
+		var pushed			int;
+		var start			*const char;
+
+		buffer = buffer_memory;
+		if *content == '<' {
+			end_symbol = '>';
+		} else {
+			end_symbol = *content;
+		}
+		pushed = 0;
+		content += 1;
+		start = content;
+		while *content && *content != end_symbol && result {
+			if buffer - buffer_memory >= [size] sizeof buffer_memory {
+				if push_string_token (tokenizer, state->offset, buffer_memory, sizeof buffer_memory, pushed) {
+					pushed = 1;
+					buffer = buffer_memory;
+					result = 1;
+				} else {
+					result = 0;
+				}
+			}
+			if result {
+				var is_forbidden_newline	int;
+
+				is_forbidden_newline = (*content == '\n');
+				if *content == '\\' && (!(__Option (preprocessor) && __Option (include_path_special_token)) || !state->its_include) {
+					is_forbidden_newline = is_forbidden_newline || (content[1] == '\n');
+					*buffer = escape_symbol (&content);
+					buffer += 1;
+				} else {
+					*buffer = *content;
+					buffer += 1;
+				}
+				if is_forbidden_newline {
+					Error ("new line character in the string literal is forbidden");
+					result = 0;
+				}
+				content += 1;
+			}
+		}
+		if result {
+			if push_string_token (tokenizer, state->offset, buffer_memory, buffer - buffer_memory, pushed) {
+				if end_symbol == '\'' {
+					tokenizer->current[-1] = Token (character);
+				} else static_if __Option (preprocessor) && __Option (include_path_special_token) {
+					if end_symbol == '>' {
+						tokenizer->current[-1] = Token (path_global);
+					} else if state->its_include {
+						tokenizer->current[-1] = Token (path_relative);
+					}
+				}
+				content += 1;
+				result = 1;
+			} else {
+				result = 0;
+			}
+		}
+		state->column += (content - start) + 1;
+		state->offset = 0;
+		static_if __Option (preprocessor) && __Option (include_path_special_token) {
+			state->check_include = 0;
+			state->its_include = 0;
+			state->its_implement = 0;
+		}
+	} else {
+		var string	**const char;
+		var length	usize;
+
+		string = token_strings;
+		while *string && 0 != strncmp (*string, content, strlen (*string)) {
+			string += 1;
+		}
+		if *string {
+			length = strlen (*string);
+		} else {
+			length = 1;
+		}
+		static_if __Option (preprocessor) && __Option (include_path_special_token) {
+			state->check_include = 0;
+			state->its_include = 0;
+			state->its_implement = 0;
+			if length == 1 && *content == '#' && ((tokenizer->current && tokenizer->current[-1] == Token (newline)) || !tokenizer->current) {
+				state->check_include = 1;
+			}
+		}
+		static_if __Option (trigraph) {
+			if (length == 2 && (*content == '<' || *content == '%' || *content == ':')) {
+				if 0 == strncmp (content, "<%", 2) {
+					push_token (tokenizer, state->offset, Token (punctuator), "{", 1);
+				} else if 0 == strncmp (content, "%>", 2) {
+					push_token (tokenizer, state->offset, Token (punctuator), "}", 1);
+				} else if 0 == strncmp (content, "<:", 2) {
+					push_token (tokenizer, state->offset, Token (punctuator), "[", 1);
+				} else if 0 == strncmp (content, ":>", 2) {
+					push_token (tokenizer, state->offset, Token (punctuator), "]", 1);
+				} else if 0 == strncmp (content, "%:", 2) {
+					push_token (tokenizer, state->offset, Token (punctuator), "#", 1);
+				} else {
+					push_token (tokenizer, state->offset, Token (punctuator), content, length);
+				}
+			} else if length == 4 && 0 == strncmp (content, "%:%:", 4) {
+				push_token (tokenizer, state->offset, Token (punctuator), "##", 2);
+			} else {
+				push_token (tokenizer, state->offset, Token (punctuator), content, length);
+			}
+		} else {
+			push_token (tokenizer, state->offset, Token (punctuator), content, length);
+		}
+		state->column += length;
+		state->offset = 0;
+		content += length;
+	}
+	*pcontent = content;
+}
+
+prev_token	(*char) (token *char) {
+	var length	int;
+
+	if token[-1] != Token (link) {
+		token -= Token_Header_Size;
+		token -= 2;
+		length = token[0] << 8;
+		length += token[1];
+		token -= 1;
+		assert (*token == 0);
+		token -= length;
+	}
+	if token[-1] == Token (link) {
+		var last_token	*char;
+
+		last_token = *([**void] token + 1);
+		if last_token {
+			assert (last_token[-1] == Token (link));
+			length = get_token_length (last_token);
+			assert (length == sizeof [*void] * 4);
+			token = last_token;
+			token -= Token_Header_Size;
+			token -= 2;
+			length = token[0] << 8;
+			length += token[1];
+			token -= 1;
+			assert (*token == 0);
+			token -= length;
+			if token[-1] == Token (link) {
+				token = prev_token (token);
+			}
+		} else {
+			Error ("no last token");
+			token = 0;
+		}
+	}
+	result = token;
+}
+
+revert_token	int (tokenizer *struct tokenizer) {
+	if tokenizer->current {
+		var token		*const char;
+		var length		int;
+		var drop_length	int;
+
+		token = tokenizer->current;
+		drop_length = 0;
+		if token[-1] != Token (link) {
+			drop_length = get_token_length (token);
+			token -= Token_Header_Size;
+			token -= 2;
+			length = token[0] << 8;
+			length += token[1];
+			token -= 1;
+			assert (*token == 0);
+			token -= length;
+		}
+		if token[-1] == Token (link) {
+			var last_token	*const char;
+
+			assert (*[**void] token == 0);
+			last_token = *([**void] token + 1);
+			if last_token {
+				assert (last_token[-1] == Token (link));
+				release_array (*[**void] last_token);
+				*[**void] last_token = 0;
+				length = get_token_length (last_token);
+				assert (length == sizeof [*void] * 4);
+				tokenizer->data = *([**void] last_token + 1);
+				tokenizer->size = [usize] *([**void] last_token + 2);
+				tokenizer->cap = [usize] *([**void] last_token + 3);
+				token = last_token;
+				token -= Token_Header_Size;
+				token -= 2;
+				length = token[0] << 8;
+				length += token[1];
+				token -= 1;
+				assert (*token == 0);
+				token -= length;
+				tokenizer->current = [*char] token;
+				if (token[-1] == Token (link)) {
+					tokenizer->current = [*char] last_token;
+					result = revert_token (tokenizer);
+				} else {
+					result = 1;
+				}
+			} else {
+				release_array (tokenizer->data);
+				memset (tokenizer, 0, sizeof *tokenizer);
+				result = 1;
+			}
+		} else {
+			tokenizer->current = [*char] token;
+			tokenizer->size -= Calc_Token_Size (drop_length);
+			result = 1;
+		}
+	} else {
+		result = 1;
+	}
+}
+
+free_tokens		void (tokens *const char) {
+	var memory	**void;
+
+	memory = [**void] (tokens - Token_Page_Header_Size);
+	while *memory {
+		var next	*void;
+
+		next = *memory;
+		memory = [**void] ([*char] memory - Token_Header_Size);
+		free (memory);
+		assert (next);
+		memory = [**void] ([*char] next + Token_Header_Size);
+	}
+	memory = [**void] ([*char] memory - Token_Header_Size);
+	free (memory);
+}
+
+free_tokenizer	void (tokenizer *struct tokenizer) {
+	if tokenizer->start_data {
+		free_tokens (get_first_token (tokenizer));
+	}
+	memset (tokenizer, 0, sizeof *tokenizer);
+}
+
+reset_tokenizer		void (tokenizer *struct tokenizer) {
+	/* todo: reset to the beginning */
+	if tokenizer->data {
+		tokenizer->size = Token_Page_Header_Size;
+	}
+}
+
+tokenize	(*char) (content *const char, nl_array *int, ensure_nl_at_end int, filename *const char) {
+	var tokenizer		struct tokenizer;
+	var fallback_array	int[1];
+
+	Zero (tokenizer);
+	if nl_array == 0 {
+		fallback_array[0] = 0;
+		nl_array = fallback_array;
+	}
+	result = tokenize_with (&tokenizer, content, nl_array, ensure_nl_at_end, filename);
+}
+
+tokenize_to		(*char) (tokenizer *struct tokenizer, content *const char, filename *const char) {
+	var begin		*char;
+	var state		struct token_state;
+	var nl_array	int[1];
+	var success		int;
+
+	begin = tokenizer->current;
+	state.tabsize = 1;
+	state.line = 1;
+	state.column = 1;
+	state.nl_array = nl_array;
+	state.filename = filename;
+	nl_array[0] = 0;
+	success = 1;
+	while (success && *content) {
+		success = make_token (tokenizer, &state, &content);
+	}
+	if success {
+		result = get_next_from_tokenizer (tokenizer, begin);
+	} else {
+		result = 0;
+	}
+}
+
+tokenize_with	(*char) (tokenizer *struct tokenizer, content *const char, nl_array *int, ensure_nl_at_end int, filename *const char) {
+	var success			int;
+	var was_allocated	int;
+	var begin			*char;
+	var state			struct token_state;
+
+	was_allocated = !!tokenizer->data;
+	state.tabsize = 1;
+	state.line = 1;
+	state.column = 1;
+	state.nl_array = nl_array;
+	state.filename = filename;
+	start_tokenizer (tokenizer);
+	begin = tokenizer->current;
+	while success && *content {
+		success = make_token (tokenizer, &state, &content);
+	}
+	if success {
+		if ensure_nl_at_end && tokenizer->current && tokenizer->current[-1] != Token (newline) {
+			success = push_newline_token (tokenizer, state.offset);
+			state.offset = 0;
+		}
+		if success {
+			success = end_tokenizer (tokenizer, state.offset);
+		}
+	}
+	if success {
+		result = get_next_from_tokenizer_ex (tokenizer, begin, 0);
+	} else {
+		Error ("tokenization failure");
+		if !was_allocated {
+			free_tokenizer (tokenizer);
+		}
+		result = 0;
+	}
+}
+
+unescape_string		int (token *const char, out *char, cap usize, size *usize) {
+	var index		usize;
+	var out_start	*char;
+	var length		int;
+
+	index = 0;
+	out_start = out;
+	result = 1;
+	length = get_token_length (token);
+	while result && length > 0 && (result = out - out_start < [size] cap - 4) {
+		unescape_symbol ([uchar] *token, &out);
+		token += 1;
+		length -= 1;
+	}
+	if result {
+		if out - out_start < [size] cap - 1 {
+			*size = out - out_start;
+			*out = 0;
+		} else {
+			result = 0;
+		}
+	}
+}
+
+get_open_string		int (tkn int) {
+	if tkn == Token (string)				result = '\"';
+	else if tkn == Token (character)		result = '\'';
+	else if tkn == Token (path_global)		result = '<';
+	else if tkn == Token (path_relative)	result = '\"';
+	else result = 0;
+}
+
+get_close_string	int (tkn int) {
+	if tkn == Token (string)				result = '\"';
+	else if tkn == Token (character)		result = '\'';
+	else if tkn == Token (path_global)		result = '>';
+	else if tkn == Token (path_relative)	result = '\"';
+	else result = 0;
+}
+
+unescape_string_token	int (token *const char, out *char, cap usize, size *usize) {
+	var tkn		int;
+
+	tkn = token[-1];
+	if cap > 3 {
+		*out = get_open_string (tkn);
+		out += 1;
+		result = unescape_string (token, out, cap - 3, size);
+		if result {
+			out[*size] = get_close_string (tkn);
+			*size += 1;
+			out[*size] = 0;
+		}
+	} else {
+		result = 0;
+	}
+}
+
+concatenate_token	int (tokenizer *struct tokenizer, token *const char, pos *const struct position) {
+	if tokenizer->current && tokenizer->current[-1] && tokenizer->current[-1] != Token (newline) && token[-1] && token[-1] != Token (newline) {
+		var content		*char;
+		var cap			usize;
+		var offset		int;
+
+		offset = get_token_offset (tokenizer->current);
+		content = expand_array (0, &cap);
+		if content {
+			var size	usize;
+
+			if is_string_token (tokenizer->current[-1]) {
+				result = unescape_string_token (tokenizer->current, content, cap, &size);
+			} else {
+				size = own_stpcpy (content, tokenizer->current) - content;
+				if size < cap {
+					if is_string_token (token[-1]) {
+						var new_size	usize;
+
+						result = unescape_string_token (token, content + size, cap - size, &new_size);
+						size += new_size;
+					} else {
+						size = own_stpcpy (content + size, token) - content;
+						if size < cap {
+							content[size] = 0;
+							result = 1;
+						} else {
+							Error ("not enough memory");
+							result = 0;
+						}
+					}
+				} else {
+					Error ("not enough memory");
+					result = 0;
+				}
+			}
+		} else {
+			result = 0;
+		}
+		if result {
+			var state		struct token_state;
+			var nl_array	int[1];
+			var ptr			*const char;
+
+			state.line = 1;
+			state.column = 1;
+			state.nl_array = nl_array;
+			state.filename = pos->filename;
+			nl_array[0] = 0;
+			ptr = content;
+			if revert_token (tokenizer) {
+				if make_token (tokenizer, &state, [**const char] &ptr) {
+					if *ptr == 0 {
+						set_token_offset (tokenizer->current, offset);
+						result = 1;
+					} else {
+						Error ("resulting token is invalid");
+						result = 0;
+					}
+				} else {
+					result = 0;
+				}
+			} else {
+				result = 0;
+			}
+		}
+		free (content);
+	} else {
+		Error ("invalid tokens");
+		result = 0;
+	}
+}
+
+print_string_token	void (token *const char, file *FILE) {
+	var buffer		char[256 + 1];
+	var bufsize		usize;
+	var tkn			int;
+
+	bufsize = 0;
+	tkn = token[-1];
+	fprintf (file, "%c", get_open_string (tkn));
+	while !unescape_string (token + bufsize, buffer, Array_Count (buffer) - 1, &bufsize) {
+		buffer[bufsize] = 0;
+		fprintf (file, "%s", buffer);
+	}
+	buffer[bufsize] = 0;
+	fprintf (file, "%s%c", buffer, get_close_string (tkn));
+}
+
+print_tokens_until	void (tokens *const char, with_lines int, start_line int, start_column int, line_prefix *const char, end_token int, line_directives int, file *FILE) {
+	var cpos	struct position;
+	var pos		*struct position;
+	var prev	*const char;
+
+	cpos.filename = "";
+	cpos.line = 1;
+	cpos.column = 1;
+	cpos.at_the_beginning = 1;
+	pos = &cpos;
+	if start_line > 0 {
+		pos->line = start_line;
+	}
+	if start_column > 0 {
+		pos->column = start_column;
+	}
+	fprintf (file, "%s", line_prefix);
+	if with_lines {
+		fprintf (file, "%*d|", 4, pos->line);
+	}
+	if !tokens[-1] || tokens[-1] == end_token {
+		fprintf (file, "%*.s\n", get_token_offset (tokens), "");
+	} else while tokens[-1] && tokens[-1] != end_token {
+		if tokens[-1] == Token (newline) {
+			var index	usize;
+			var initial_line	usize;
+
+			index = 0;
+			initial_line = pos->line;
+			if tokens[0] > 16 {
+				var next		*const char;
+				var old_line	int;
+
+				old_line = pos->line;
+				pos->line += tokens[0];
+				next = next_const_token_ex (tokens, 0, 0);
+				while next[-1] == Token (newline) {
+					pos->line += next[0];
+					tokens = next;
+					next = next_const_token_ex (next, 0, 0);
+				}
+				if line_directives && __Option (line_directives) {
+					fprintf (file, "\n%s", line_prefix);
+					if with_lines {
+						fprintf (file, "%*d|", 4, pos->line);
+					}
+					fprintf (file, "#line %d ", pos->line);
+					print_string_token (pos->filename, file);
+					fprintf (file, "\n");
+				}
+			} else {
+				while index < [usize] tokens[0] {
+					pos->line += 1;
+					fprintf (file, "\n%s", line_prefix);
+					if with_lines {
+						fprintf (file, "%*d|", 4, pos->line);
+					}
+					index += 1;
+				}
+			}
+			if !next_const_token_ex (tokens, 0, 0)[-1] {
+				fprintf (file, "%*.s\n", get_token_offset (tokens), "");
+			}
+		} else if tokens[-1] == Token (punctuator) && 0 == strcmp (tokens, "#") && ((prev && prev[-1] == Token (newline)) || !prev) {
+			var next			*const char;
+			var should_print	int;
+
+			should_print = 1;
+			next = next_const_token_ex (tokens, 0, 0);
+			if next[-1] {
+				if next[-1] && next[-1] == Token (identifier) && 0 == strcmp (next, "line") {
+					next = next_const_token_ex (next, 0, 0);
+					if next[-1] && next[-1] == Token (number) {
+						pos->line = atoi (next) - 1;
+						next = next_const_token_ex (next, 0, 0);
+						if next[-1] && next[-1] == Token (string) {
+							pos->filename = next;
+							if !line_directives {
+								tokens = next_const_token_ex (next, 0, 0);
+								should_print = 0;
+							}
+						}
+					}
+				}
+			}
+			if should_print {
+				fprintf (file, "%*.s%s", get_token_offset (tokens), "", tokens);
+			}
+		} else if is_string_token (tokens[-1]) {
+			fprintf (file, "%*.s", get_token_offset (tokens), "");
+			print_string_token (tokens, file);
+		} else {
+			fprintf (file, "%*.s%s", get_token_offset (tokens), "", tokens);
+		}
+		prev = tokens;
+		tokens = next_const_token_ex (tokens, 0, 0);
+	}
+	if !tokens[-1] && get_token_offset (tokens) > 0 {
+		fprintf (file, "%*.s", get_token_offset (tokens), "");
+	}
+	if prev && prev[-1] != Token (newline) {
+		fprintf (file, "\n");
+	}
+}
+
+print_tokens	void (tokens *const char, with_lines int, line_prefix *const char, file *FILE) {
+	print_tokens_until (tokens, with_lines, 0, 0, line_prefix, Token (eof), __Option (line_directives), file);
+}
+
+copy_token	int (tokenizer *struct tokenizer, token *const char) {
+	var length	usize;
+
+	length = get_token_length (token);
+	if token[-1] == Token (newline) && tokenizer->current && tokenizer->current[-1] == Token (newline) {
+		if token[0] + tokenizer->current[0] > 0x7f {
+			var remaining	int;
+
+			remaining = (token[0] + tokenizer->current[0]) - 0x7f;
+			tokenizer->current[0] = 0x7f;
+			if prepare_tokenizer (tokenizer, Calc_Token_Size (1)) {
+				tokenizer->current = push_token_bytes (tokenizer, 0, token[-1], &remaining, 1);
+				result = 1;
+			} else {
+				result = 0;
+			}
+		} else {
+			tokenizer->current[0] += token[0];
+			result = 1;
+		}
+	} else if prepare_tokenizer (tokenizer, Calc_Token_Size (length)) {
+		tokenizer->current = push_token_bytes (tokenizer, get_token_offset (token), token[-1], token, get_token_length (token));
+		result = 1;
+	} else {
+		result = 0;
+	}
+}
+
+
+
+
+
+main	int (argc int, argv (*char)[]) {
+	var tokenizer	struct tokenizer;
+
+	Zero (tokenizer);
+	result = 0;
+}
+
+
+

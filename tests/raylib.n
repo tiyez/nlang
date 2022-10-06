@@ -1,0 +1,57 @@
+
+
+
+#manifest {
+	libs {
+		"@raylib.n";
+		"@basiclog.n";
+	}
+	cc_flags {
+		"/MD";
+		"/EHsc";
+	}
+	cc_includes {
+		"direct2d.hpp";
+	}
+	cc_sources {
+		"direct2d.cpp";
+	}
+	cc_libs {
+		"D2d1.lib";
+		"Dwrite.lib";
+	}
+	inserters {
+		raylib_cc_include_path E"C:\Users\other\Documents\lib\raylib\src";
+		raylib_cc_libpath E"C:\Users\other\Documents\lib\raylib\projects\VS2022\build\raylib\bin\x64\Release";
+	}
+}
+
+#opaque direct2d_state;
+#external initialize_direct2d	(*direct2d_state) (void);
+#external run_direct2d			int (state *direct2d_state);
+
+main	int (argc int, argv (*char)[]) {
+	var state	*direct2d_state;
+
+	InitWindow (800, 600, "raylib test");
+	SetWindowState (ConfigFlags.value [ConfigFlags (window_undecorated)]);
+	state = initialize_direct2d ();
+	if (state) {
+		run_direct2d (state);
+		while !WindowShouldClose () {
+			PollInputEvents ();
+		}
+		result = 1;
+	} else {
+		Error ("cannot initialize direct2d");
+		result = 0;
+	}
+	CloseWindow ();
+	result = !result;
+}
+
+
+
+
+
+

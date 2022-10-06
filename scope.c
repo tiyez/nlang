@@ -14,29 +14,29 @@ void	init_scope (struct scope *scope) {
 struct scope	*get_scope (struct unit *unit, uint scope_index) {
 	struct scope	*scope;
 
-	Assert (Is_Bucket_Index_Valid (unit->scopes, scope_index));
-	scope = Get_Bucket_Element (unit->scopes, scope_index);
+	Assert (Is_Bucket_Index_Valid (unit->buckets->scopes, scope_index));
+	scope = Get_Bucket_Element (unit->buckets->scopes, scope_index);
 	return (scope);
 }
 
 int		get_scope_index (struct unit *unit, struct scope *scope) {
-	return (Get_Bucket_Element_Index (unit->scopes, scope));
+	return (Get_Bucket_Element_Index (unit->buckets->scopes, scope));
 }
 
 uint	make_scope (struct unit *unit, enum scopekind kind, uint parent) {
 	uint	index;
 
-	if (Prepare_Bucket (unit->scopes, 1)) {
+	if (Prepare_Bucket (unit->buckets->scopes, 1)) {
 		struct scope	*scope;
 
-		scope = Push_Bucket (unit->scopes);
+		scope = Push_Bucket (unit->buckets->scopes);
 		init_scope (scope);
 		scope->kind = kind;
 		scope->tagtype = TagType (invalid);
 		scope->parent_scope = parent;
 		scope->param_scope = 0;
 		scope->type_index = 0;
-		index = Get_Bucket_Element_Index (unit->scopes, scope);
+		index = Get_Bucket_Element_Index (unit->buckets->scopes, scope);
 	} else {
 		index = 0;
 	}
@@ -56,26 +56,26 @@ uint	make_tag_scope (struct unit *unit, enum tagtype tagtype, uint parent) {
 struct flow	*get_flow (struct unit *unit, uint index) {
 	struct flow	*flow;
 
-	Assert (Is_Bucket_Index_Valid (unit->flows, index));
-	flow = Get_Bucket_Element (unit->flows, index);
+	Assert (Is_Bucket_Index_Valid (unit->buckets->flows, index));
+	flow = Get_Bucket_Element (unit->buckets->flows, index);
 	return (flow);
 }
 
 uint	get_flow_index (struct unit *unit, struct flow *flow) {
-	return (Get_Bucket_Element_Index (unit->flows, flow));
+	return (Get_Bucket_Element_Index (unit->buckets->flows, flow));
 }
 
 uint	make_flow (struct unit *unit, enum flowtype type, int line) {
 	uint	index;
 
-	if (Prepare_Bucket (unit->flows, 1)) {
+	if (Prepare_Bucket (unit->buckets->flows, 1)) {
 		struct flow		*flow;
 
-		flow = Push_Bucket (unit->flows);
+		flow = Push_Bucket (unit->buckets->flows);
 		flow->next = 0;
 		flow->line = line;
 		flow->type = type;
-		index = Get_Bucket_Element_Index (unit->flows, flow);
+		index = Get_Bucket_Element_Index (unit->buckets->flows, flow);
 	} else {
 		Error ("cannot prepare flow array");
 		index = 0;
@@ -118,10 +118,10 @@ uint	make_if_flow (struct unit *unit, uint expr, uint body, uint else_body, int 
 	return (index);
 }
 
-uint	make_constif_flow (struct unit *unit, uint expr, uint body, uint else_body, int line) {
+uint	make_static_if_flow (struct unit *unit, uint expr, uint body, uint else_body, int line) {
 	uint		index;
 
-	index = make_flow (unit, FlowType (constif), line);
+	index = make_flow (unit, FlowType (static_if), line);
 	if (index) {
 		struct flow *flow;
 
@@ -161,6 +161,41 @@ uint	make_dowhile_flow (struct unit *unit, uint expr, uint body, int line) {
 	return (index);
 }
 
+uint	make_assert_flow (struct unit *unit, uint expr, char *string, int line) {
+	uint	index;
+
+	index = make_flow (unit, FlowType (assert), line);
+	if (index) {
+		struct flow *flow;
+
+		flow = get_flow (unit, index);
+		flow->assert.expr = expr;
+		flow->assert.string = string;
+	}
+	return (index);
+}
+
+uint	make_static_assert_flow (struct unit *unit, uint expr, char *string, int line) {
+	uint	index;
+
+	index = make_flow (unit, FlowType (static_assert), line);
+	if (index) {
+		struct flow *flow;
+
+		flow = get_flow (unit, index);
+		flow->assert.expr = expr;
+		flow->assert.string = string;
+	}
+	return (index);
+}
+
+uint	make_unreachable_flow (struct unit *unit, int line) {
+	uint	index;
+
+	index = make_flow (unit, FlowType (unreachable), line);
+	return (index);
+}
+
 uint	make_decl_flow (struct unit *unit, uint decl_index, int line) {
 	uint	index;
 
@@ -188,13 +223,13 @@ uint	make_init_flow (struct unit *unit, enum inittype inittype, uint body, int l
 struct decl	*get_decl (struct unit *unit, uint index) {
 	struct decl	*decl;
 
-	Assert (Is_Bucket_Index_Valid (unit->decls, index));
-	decl = Get_Bucket_Element (unit->decls, index);
+	Assert (Is_Bucket_Index_Valid (unit->buckets->decls, index));
+	decl = Get_Bucket_Element (unit->buckets->decls, index);
 	return (decl);
 }
 
 uint	get_decl_index (struct unit *unit, struct decl *decl) {
-	return (Get_Bucket_Element_Index (unit->decls, decl));
+	return (Get_Bucket_Element_Index (unit->buckets->decls, decl));
 }
 
 uint64	get_decl_gindex (struct unit *unit, struct unit *decl_unit, struct decl *decl) {
@@ -211,17 +246,17 @@ uint64	get_decl_gindex (struct unit *unit, struct unit *decl_unit, struct decl *
 uint	make_decl (struct unit *unit, uint scope_index, const char *name, uint type, enum declkind kind, int line) {
 	uint	index;
 
-	if (Prepare_Bucket (unit->decls, 1)) {
+	if (Prepare_Bucket (unit->buckets->decls, 1)) {
 		struct scope	*scope;
 		struct decl		*decl;
 
-		decl = Push_Bucket (unit->decls);
+		decl = Push_Bucket (unit->buckets->decls);
 		if (scope_index) {
 			scope = get_scope (unit, scope_index);
 			if (scope->decl_last) {
-				scope->decl_last = get_decl (unit, scope->decl_last)->next = Get_Bucket_Element_Index (unit->decls, decl);
+				scope->decl_last = get_decl (unit, scope->decl_last)->next = Get_Bucket_Element_Index (unit->buckets->decls, decl);
 			} else {
-				scope->decl_last = scope->decl_begin = Get_Bucket_Element_Index (unit->decls, decl);
+				scope->decl_last = scope->decl_begin = Get_Bucket_Element_Index (unit->buckets->decls, decl);
 			}
 			decl->is_global = scope->kind == ScopeKind (unit);
 		}
@@ -230,8 +265,8 @@ uint	make_decl (struct unit *unit, uint scope_index, const char *name, uint type
 		decl->name = name;
 		decl->type = type;
 		decl->kind = kind;
-		decl->filename = unit->filename;
-		index = Get_Bucket_Element_Index (unit->decls, decl);
+		decl->filepath = unit->filepath;
+		index = Get_Bucket_Element_Index (unit->buckets->decls, decl);
 	} else {
 		Error ("cannot prepare decl array");
 		index = 0;
@@ -321,12 +356,11 @@ uint	make_block_decl (struct unit *unit, uint scope_index, const char *name, uin
 	return (index);
 }
 
-uint	make_enum_decl (struct unit *unit, uint scope_index, const char *name, uint expr, uint params, int line) {
+uint	make_enum_decl (struct unit *unit, uint scope_index, const char *name, uint params, int line) {
 	uint	index;
 
 	index = make_decl (unit, scope_index, name, 0, DeclKind (enum), line);
 	if (index) {
-		get_decl (unit, index)->enumt.expr = expr;
 		get_decl (unit, index)->enumt.params = params;
 	}
 	return (index);
@@ -377,6 +411,16 @@ uint	make_define_type_decl (struct unit *unit, uint scope_index, const char *nam
 	index = make_decl (unit, scope_index, name, type_index, DeclKind (define), line);
 	if (index) {
 		get_decl (unit, index)->define.kind = DefineKind (type);
+	}
+	return (index);
+}
+
+uint	make_define_opaque_decl (struct unit *unit, uint scope_index, const char *name, int line) {
+	uint	index;
+
+	index = make_decl (unit, scope_index, name, 0, DeclKind (define), line);
+	if (index) {
+		get_decl (unit, index)->define.kind = DefineKind (opaque);
 	}
 	return (index);
 }
@@ -449,6 +493,9 @@ void	add_flow_to_scope (struct unit *unit, uint scope_index, uint flow_index) {
 	} else {
 		scope->flow_last = scope->flow_begin = flow_index;
 	}
+	while (get_flow (unit, scope->flow_last)->next) {
+		scope->flow_last = get_flow (unit, scope->flow_last)->next;
+	}
 }
 
 void	add_decl_to_scope (struct unit *unit, uint scope_index, uint decl_index) {
@@ -461,9 +508,12 @@ void	add_decl_to_scope (struct unit *unit, uint scope_index, uint decl_index) {
 	} else {
 		scope->decl_last = scope->decl_begin = decl_index;
 	}
+	while (get_decl (unit, scope->decl_last)->next) {
+		scope->decl_last = get_flow (unit, scope->decl_last)->next;
+	}
 }
 
-int		parse_code_scope_flow (struct unit *unit, uint scope_index, char **ptokens, uint *out) {
+int		parse_code_scope_flow (struct unit *unit, uint scope_index, char **ptokens, int is_try_decl, uint *out) {
 	int		result;
 
 	*out = 0;
@@ -474,13 +524,13 @@ int		parse_code_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 			*out = make_if_flow (unit, 0, 0, 0, unit->pos.line);
 			*ptokens = next_token (*ptokens, &unit->pos);
 			if (parse_expr (unit, ptokens, &expr)) {
-				if (parse_code_scope_flow (unit, scope_index, ptokens, &body)) {
+				if (parse_code_scope_flow (unit, scope_index, ptokens, 0, &body)) {
 					uint	else_body;
 
 					else_body = 0;
 					if (is_token (*ptokens, Token (identifier), "else")) {
 						*ptokens = next_token (*ptokens, &unit->pos);
-						if (parse_code_scope_flow (unit, scope_index, ptokens, &else_body)) {
+						if (parse_code_scope_flow (unit, scope_index, ptokens, 0, &else_body)) {
 							result = 1;
 						} else {
 							result = 0;
@@ -503,19 +553,19 @@ int		parse_code_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 			} else {
 				result = 0;
 			}
-		} else if (0 == strcmp (*ptokens, "constif")) {
+		} else if (0 == strcmp (*ptokens, "static_if")) {
 			uint	expr, body;
 
-			*out = make_constif_flow (unit, 0, 0, 0, unit->pos.line);
+			*out = make_static_if_flow (unit, 0, 0, 0, unit->pos.line);
 			*ptokens = next_token (*ptokens, &unit->pos);
 			if (parse_expr (unit, ptokens, &expr)) {
-				if (parse_code_scope_flow (unit, scope_index, ptokens, &body)) {
+				if (parse_code_scope_flow (unit, scope_index, ptokens, 0, &body)) {
 					uint	else_body;
 
 					else_body = 0;
 					if (is_token (*ptokens, Token (identifier), "else")) {
 						*ptokens = next_token (*ptokens, &unit->pos);
-						if (parse_code_scope_flow (unit, scope_index, ptokens, &else_body)) {
+						if (parse_code_scope_flow (unit, scope_index, ptokens, 0, &else_body)) {
 							result = 1;
 						} else {
 							result = 0;
@@ -527,9 +577,9 @@ int		parse_code_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 						struct flow	*flow;
 
 						flow = get_flow (unit, *out);
-						flow->constif.expr = expr;
-						flow->constif.flow_body = body;
-						flow->constif.else_body = else_body;
+						flow->static_if.expr = expr;
+						flow->static_if.flow_body = body;
+						flow->static_if.else_body = else_body;
 						result = 1;
 					}
 				} else {
@@ -544,7 +594,7 @@ int		parse_code_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 			*out = make_while_flow (unit, 0, 0, unit->pos.line);
 			*ptokens = next_token (*ptokens, &unit->pos);
 			if (parse_expr (unit, ptokens, &expr)) {
-				if (parse_code_scope_flow (unit, scope_index, ptokens, &body)) {
+				if (parse_code_scope_flow (unit, scope_index, ptokens, 0, &body)) {
 					struct flow	*fwhile;
 
 					fwhile = get_flow (unit, *out);
@@ -562,7 +612,7 @@ int		parse_code_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 
 			*out = make_dowhile_flow (unit, 0, 0, unit->pos.line);
 			*ptokens = next_token (*ptokens, &unit->pos);
-			if (parse_code_scope_flow (unit, scope_index, ptokens, &body)) {
+			if (parse_code_scope_flow (unit, scope_index, ptokens, 0, &body)) {
 				if (is_token (*ptokens, Token (identifier), "while")) {
 					*ptokens = next_token (*ptokens, &unit->pos);
 					if (parse_expr (unit, ptokens, &expr)) {
@@ -669,23 +719,132 @@ int		parse_code_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 				Parse_Error (*ptokens, unit->pos, "unexpected token");
 				result = 0;
 			}
+		} else if (0 == strcmp (*ptokens, "assert") || 0 == strcmp (*ptokens, "static_assert")) {
+			uint		expr_index;
+			int			line;
+			int			is_static;
+			char		*start, *end;
+
+			is_static = 0 == strcmp (*ptokens, "static_assert");
+			line = unit->pos.line;
+			*ptokens = next_token (*ptokens, &unit->pos);
+			start = *ptokens;
+			if (parse_expr (unit, ptokens, &expr_index)) {
+				if (is_token (*ptokens, Token (punctuator), ";")) {
+					if (expr_index) {
+						char	*string;
+
+						end = *ptokens;
+						string = g_tokenizer.current;
+						if (push_string_token (&g_tokenizer, 0, start, get_token_length (start), 0)) {
+							string = get_next_from_tokenizer (&g_tokenizer, string);
+							result = 1;
+							while (result && start != end) {
+								start = next_token (start, 0);
+								if (start != end) {
+									result = push_string_token (&g_tokenizer, get_token_offset (start), start, get_token_length (start), 1);
+								}
+							}
+							if (result) {
+								*ptokens = next_token (*ptokens, &unit->pos);
+								if (is_static) {
+									*out = make_static_assert_flow (unit, expr_index, string, line);
+								} else {
+									*out = make_assert_flow (unit, expr_index, string, line);
+								}
+							} else {
+								Parse_Error (*ptokens, unit->pos, "cannot create string of asserted expression");
+								result = 0;
+							}
+						} else {
+							Parse_Error (*ptokens, unit->pos, "cannot create string of asserted expression");
+							result = 0;
+						}
+					} else {
+						Parse_Error (*ptokens, unit->pos, "empty assert condition");
+						result = 0;
+					}
+				} else {
+					Parse_Error (*ptokens, unit->pos, "unexpected token");
+					result = 0;
+				}
+			} else {
+				result = 0;
+			}
+		} else if (0 == strcmp (*ptokens, "unreachable")) {
+			int			line;
+
+			line = unit->pos.line;
+			*ptokens = next_token (*ptokens, &unit->pos);
+			if (is_token (*ptokens, Token (punctuator), ";")) {
+				*ptokens = next_token (*ptokens, &unit->pos);
+				*out = make_unreachable_flow (unit, line);
+				result = 1;
+			} else {
+				Parse_Error (*ptokens, unit->pos, "unexpected token");
+				result = 0;
+			}
 		} else {
 			uint	expr;
 			int		line;
 
 			line = unit->pos.line;
-			if (parse_expr (unit, ptokens, &expr)) {
+			if (is_try_decl && try_to_parse_type_ended_by_token (unit, next_token (*ptokens, 0), Token (punctuator), ";")) {
+				if (!try_to_parse_expr_ended_by_token (unit, *ptokens, Token (punctuator), ";")) {
+					const char	*name;
+					uint		type_index;
+
+					name = *ptokens;
+					*ptokens = next_token (*ptokens, &unit->pos);
+					if (parse_type (unit, ptokens, &type_index)) {
+						if (type_index) {
+							if (is_token (*ptokens, Token (punctuator), ";")) {
+								struct type	*type;
+
+								type = get_type (unit, type_index);
+								if (!(type->kind == TypeKind (mod) && type->mod.kind == TypeMod (function))) {
+									int		decl;
+
+									*ptokens = next_token (*ptokens, &unit->pos);
+									decl = make_var_decl (unit, scope_index, name, type_index, line);
+									if (decl) {
+										*out = make_decl_flow (unit, decl, line);
+										Assert (*out);
+										result = 1;
+									} else {
+										Parse_Error (*ptokens, unit->pos, "cannot create decl");
+										result = 0;
+									}
+								} else {
+									Parse_Error (*ptokens, unit->pos, "function declaration is forbidden in the code scope");
+									result = 0;
+								}
+							} else {
+								Parse_Error (*ptokens, unit->pos, "unexpected token");
+								result = 0;
+							}
+						} else {
+							Parse_Error (*ptokens, unit->pos, "empty type");
+							result = 0;
+						}
+					} else {
+						result = 0;
+					}
+				} else {
+					Parse_Error (*ptokens, unit->pos, "variable declaration vs expression ambiguity");
+					result = 0;
+				}
+			} else if (parse_expr (unit, ptokens, &expr)) {
 				if (is_token (*ptokens, Token (punctuator), ";")) {
 					*ptokens = next_token (*ptokens, &unit->pos);
 					*out = make_expr_flow (unit, expr, line);
 					Assert (*out);
 					result = 1;
 				} else {
-					Parse_Error (*ptokens, unit->pos, "unexpected token [%s]; expecting ';'", *ptokens);
+					Parse_Error (*ptokens, unit->pos, "unexpected token; expecting ';'", *ptokens);
 					result = 0;
 				}
 			} else {
-				Parse_Error (*ptokens, unit->pos, "cannot parse expr");
 				result = 0;
 			}
 		}
@@ -704,7 +863,6 @@ int		parse_code_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 				result = 0;
 			}
 		} else {
-			Parse_Error (*ptokens, unit->pos, "cannot parse code block");
 			result = 0;
 		}
 	} else if (is_token (*ptokens, Token (punctuator), ";")) {
@@ -752,6 +910,20 @@ int		parse_tag_decl_flow (struct unit *unit, enum tagtype tagtype, uint scope_in
 		*ptokens = next_token (*ptokens, &unit->pos);
 		if (tagtype == TagType (enum) && is_token (*ptokens, Token (punctuator), "(")) {
 			result = parse_function_param_scope (unit, ptokens, &param_scope, 0);
+			if (result) {
+				uint	decl_index;
+
+				decl_index = get_scope (unit, param_scope)->decl_begin;
+				while (decl_index) {
+					struct decl	*decl;
+
+					decl = get_decl (unit, decl_index);
+				if (decl->type) {
+						get_type (unit, decl->type)->flags.is_const = 1;
+					}
+					decl_index = decl->next;
+				}
+			}
 		} else {
 			result = 1;
 		}
@@ -963,6 +1135,35 @@ int		parse_type_decl_flow (struct unit *unit, uint scope_index, char **ptokens, 
 	return (result);
 }
 
+int		parse_opaque_decl_flow (struct unit *unit, uint scope_index, char **ptokens, uint *out) {
+	int			result;
+	const char	*name;
+	int			line;
+
+	Assert (is_token (*ptokens, Token (identifier), "opaque"));
+	line = unit->pos.line;
+	*ptokens = next_token (*ptokens, &unit->pos);
+	if ((*ptokens)[-1] == Token (identifier)) {
+		name = *ptokens;
+		*ptokens = next_token (*ptokens, &unit->pos);
+		if (is_token (*ptokens, Token (punctuator), ";")) {
+			uint	decl;
+
+			decl = make_define_opaque_decl (unit, scope_index, name, line);
+			*out = make_decl_flow (unit, decl, line);
+			*ptokens = next_token (*ptokens, &unit->pos);
+			result = 1;
+		} else {
+			Parse_Error (*ptokens, unit->pos, "unexpected token");
+			result = 0;
+		}
+	} else {
+		Parse_Error (*ptokens, unit->pos, "unexpected token");
+		result = 0;
+	}
+	return (result);
+}
+
 int		parse_visability_decl_flow (struct unit *unit, uint scope_index, char **ptokens, uint *out) {
 	int			result;
 	const char	*name;
@@ -1121,6 +1322,45 @@ int		parse_assert_decl_flow (struct unit *unit, uint scope_index, char **ptokens
 	return (result);
 }
 
+const char	*find_inserter (const char *name) {
+	const char *result;
+
+	if (Get_Array_Count (g_unit_stack) > 1) {
+		int		unit_index;
+
+		unit_index = Get_Array_Count (g_unit_stack) - 2;
+		do {
+			struct unit	*unit;
+
+			unit = g_unit_stack[unit_index];
+			Assert (unit);
+			if (unit->manifest.inserters) {
+				const char	*inserter;
+
+				inserter = unit->manifest.inserters;
+				do {
+					if (0 == strcmp (inserter, name)) {
+						result = next_const_token (inserter, 0);
+					} else {
+						inserter = next_const_token (inserter, 0);
+						inserter = next_const_token (inserter, 0);
+						result = 0;
+					}
+				} while (!result && inserter[-1]);
+			} else {
+				result = 0;
+			}
+			unit_index -= 1;
+		} while (!result && unit_index >= 0);
+	} else {
+		result = 0;
+	}
+	if (result) {
+		Assert (result[-1] == Token (string));
+	}
+	return (result);
+}
+
 int		parse_manifest_decl_flow (struct unit *unit, uint scope_index, char **ptokens, uint *out) {
 	int		result;
 
@@ -1139,11 +1379,33 @@ int		parse_manifest_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 							*ptokens = next_token (*ptokens, &unit->pos);
 							begin = g_tokenizer.current;
 							do {
-								if ((*ptokens)[-1] == Token (string)) {
-									char	*colon_token;
+								if ((*ptokens)[-1] == Token (identifier)) {
+									const char	*inserter;
 
+									inserter = find_inserter (*ptokens);
+									if (inserter) {
+										result = copy_token (&g_tokenizer, inserter);
+										*ptokens = next_token (*ptokens, &unit->pos);
+									} else {
+										if (next_token (*ptokens, 0)[-1] == Token (string)) {
+											*ptokens = next_token (*ptokens, &unit->pos);
+											result = copy_token (&g_tokenizer, *ptokens);
+											*ptokens = next_token (*ptokens, &unit->pos);
+										} else {
+											Parse_Error (*ptokens, unit->pos, "undeclared inserter");
+											result = 0;
+										}
+									}
+								} else if ((*ptokens)[-1] == Token (string)) {
 									result = copy_token (&g_tokenizer, *ptokens);
 									*ptokens = next_token (*ptokens, &unit->pos);
+								} else {
+									Parse_Error (*ptokens, unit->pos, "unexpected token");
+									result = 0;
+								}
+								if (result) {
+									char	*colon_token;
+
 									if (is_token (*ptokens, Token (punctuator), "{")) {
 										*ptokens = next_token (*ptokens, &unit->pos);
 										do {
@@ -1189,9 +1451,6 @@ int		parse_manifest_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 										Parse_Error (*ptokens, unit->pos, "unexpected token");
 										result = 0;
 									}
-								} else {
-									Parse_Error (*ptokens, unit->pos, "unexpected token");
-									result = 0;
 								}
 							} while (result && !is_token (*ptokens, Token (punctuator), "}"));
 							if (result) {
@@ -1216,16 +1475,27 @@ int		parse_manifest_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 							begin = g_tokenizer.current;
 							*ptokens = next_token (*ptokens, &unit->pos);
 							do {
-								if ((*ptokens)[-1] == Token (string)) {
-									if (copy_token (&g_tokenizer, *ptokens)) {
+								if ((*ptokens)[-1] == Token (identifier)) {
+									const char	*inserter;
+
+									inserter = find_inserter (*ptokens);
+									if (inserter) {
+										result = copy_token (&g_tokenizer, inserter);
 										*ptokens = next_token (*ptokens, &unit->pos);
-										if (is_token (*ptokens, Token (punctuator), ";")) {
+									} else {
+										if (next_token (*ptokens, 0)[-1] == Token (string)) {
 											*ptokens = next_token (*ptokens, &unit->pos);
-											result = 1;
+											result = copy_token (&g_tokenizer, *ptokens);
+											*ptokens = next_token (*ptokens, &unit->pos);
 										} else {
-											Parse_Error (*ptokens, unit->pos, "unexpected token");
+											Parse_Error (*ptokens, unit->pos, "undeclared inserter");
 											result = 0;
 										}
+									}
+								} else if ((*ptokens)[-1] == Token (string)) {
+									if (copy_token (&g_tokenizer, *ptokens)) {
+										*ptokens = next_token (*ptokens, &unit->pos);
+										result = 1;
 									} else {
 										Parse_Error (*ptokens, unit->pos, "cannot copy token");
 										result = 0;
@@ -1233,6 +1503,15 @@ int		parse_manifest_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 								} else {
 									Parse_Error (*ptokens, unit->pos, "unexpected token");
 									result = 0;
+								}
+								if (result) {
+									if (is_token (*ptokens, Token (punctuator), ";")) {
+										*ptokens = next_token (*ptokens, &unit->pos);
+										result = 1;
+									} else {
+										Parse_Error (*ptokens, unit->pos, "unexpected token");
+										result = 0;
+									}
 								}
 							} while (result && !is_token (*ptokens, Token (punctuator), "}"));
 							if (result) {
@@ -1303,6 +1582,54 @@ int		parse_manifest_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 								unit->manifest.options = get_next_from_tokenizer (&g_tokenizer, begin);
 								*ptokens = next_token (*ptokens, &unit->pos);
 							}
+						}
+					} else {
+						Parse_Error (*ptokens, unit->pos, "unexpected token");
+						result = 0;
+					}
+				} else if (0 == strcmp (*ptokens, "inserters")) {
+					*ptokens = next_token (*ptokens, &unit->pos);
+					if (is_token (*ptokens, Token (punctuator), "{")) {
+						char	*begin;
+
+						begin = g_tokenizer.current;
+						*ptokens = next_token (*ptokens, &unit->pos);
+						do {
+							if ((*ptokens)[-1] == Token (identifier)) {
+								if (copy_token (&g_tokenizer, *ptokens)) {
+									*ptokens = next_token (*ptokens, &unit->pos);
+									if ((*ptokens)[-1] == Token (string)) {
+										if (copy_token (&g_tokenizer, *ptokens)) {
+											*ptokens = next_token (*ptokens, &unit->pos);
+											if (is_token (*ptokens, Token (punctuator), ";")) {
+												*ptokens = next_token (*ptokens, &unit->pos);
+												result = 1;
+											} else {
+												Parse_Error (*ptokens, unit->pos, "unexpected token");
+												result = 0;
+											}
+										} else {
+											Parse_Error (*ptokens, unit->pos, "cannot copy token");
+											result = 0;
+										}
+									} else {
+										Parse_Error (*ptokens, unit->pos, "unexpected token");
+										result = 0;
+									}
+								} else {
+									Parse_Error (*ptokens, unit->pos, "cannot copy token");
+									result = 0;
+								}
+							} else {
+								Parse_Error (*ptokens, unit->pos, "unexpected token");
+								result = 0;
+							}
+						} while (result && !is_token (*ptokens, Token (punctuator), "}"));
+						if (result) {
+							Assert (is_token (*ptokens, Token (punctuator), "}"));
+							end_tokenizer (&g_tokenizer, 0);
+							unit->manifest.inserters = get_next_from_tokenizer (&g_tokenizer, begin);
+							*ptokens = next_token (*ptokens, &unit->pos);
 						}
 					} else {
 						Parse_Error (*ptokens, unit->pos, "unexpected token");
@@ -1386,16 +1713,27 @@ int		parse_manifest_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 							begin = g_tokenizer.current;
 							*ptokens = next_token (*ptokens, &unit->pos);
 							do {
-								if ((*ptokens)[-1] == Token (string)) {
-									if (copy_token (&g_tokenizer, *ptokens)) {
+								if ((*ptokens)[-1] == Token (identifier)) {
+									const char	*inserter;
+
+									inserter = find_inserter (*ptokens);
+									if (inserter) {
+										result = copy_token (&g_tokenizer, inserter);
 										*ptokens = next_token (*ptokens, &unit->pos);
-										if (is_token (*ptokens, Token (punctuator), ";")) {
+									} else {
+										if (next_token (*ptokens, 0)[-1] == Token (string)) {
 											*ptokens = next_token (*ptokens, &unit->pos);
-											result = 1;
+											result = copy_token (&g_tokenizer, *ptokens);
+											*ptokens = next_token (*ptokens, &unit->pos);
 										} else {
-											Parse_Error (*ptokens, unit->pos, "unexpected token");
+											Parse_Error (*ptokens, unit->pos, "undeclared inserter");
 											result = 0;
 										}
+									}
+								} else if ((*ptokens)[-1] == Token (string)) {
+									if (copy_token (&g_tokenizer, *ptokens)) {
+										*ptokens = next_token (*ptokens, &unit->pos);
+										result = 1;
 									} else {
 										Parse_Error (*ptokens, unit->pos, "cannot copy token");
 										result = 0;
@@ -1403,6 +1741,15 @@ int		parse_manifest_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 								} else {
 									Parse_Error (*ptokens, unit->pos, "unexpected token");
 									result = 0;
+								}
+								if (result) {
+									if (is_token (*ptokens, Token (punctuator), ";")) {
+										*ptokens = next_token (*ptokens, &unit->pos);
+										result = 1;
+									} else {
+										Parse_Error (*ptokens, unit->pos, "unexpected token");
+										result = 0;
+									}
 								}
 							} while (result && !is_token (*ptokens, Token (punctuator), "}"));
 							if (result) {
@@ -1427,16 +1774,27 @@ int		parse_manifest_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 							begin = g_tokenizer.current;
 							*ptokens = next_token (*ptokens, &unit->pos);
 							do {
-								if ((*ptokens)[-1] == Token (string)) {
-									if (copy_token (&g_tokenizer, *ptokens)) {
+								if ((*ptokens)[-1] == Token (identifier)) {
+									const char	*inserter;
+
+									inserter = find_inserter (*ptokens);
+									if (inserter) {
+										result = copy_token (&g_tokenizer, inserter);
 										*ptokens = next_token (*ptokens, &unit->pos);
-										if (is_token (*ptokens, Token (punctuator), ";")) {
+									} else {
+										if (next_token (*ptokens, 0)[-1] == Token (string)) {
 											*ptokens = next_token (*ptokens, &unit->pos);
-											result = 1;
+											result = copy_token (&g_tokenizer, *ptokens);
+											*ptokens = next_token (*ptokens, &unit->pos);
 										} else {
-											Parse_Error (*ptokens, unit->pos, "unexpected token");
+											Parse_Error (*ptokens, unit->pos, "undeclared inserter");
 											result = 0;
 										}
+									}
+								} else if ((*ptokens)[-1] == Token (string)) {
+									if (copy_token (&g_tokenizer, *ptokens)) {
+										*ptokens = next_token (*ptokens, &unit->pos);
+										result = 1;
 									} else {
 										Parse_Error (*ptokens, unit->pos, "cannot copy token");
 										result = 0;
@@ -1445,10 +1803,80 @@ int		parse_manifest_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 									Parse_Error (*ptokens, unit->pos, "unexpected token");
 									result = 0;
 								}
+								if (result) {
+									if (is_token (*ptokens, Token (punctuator), ";")) {
+										*ptokens = next_token (*ptokens, &unit->pos);
+										result = 1;
+									} else {
+										Parse_Error (*ptokens, unit->pos, "unexpected token");
+										result = 0;
+									}
+								}
 							} while (result && !is_token (*ptokens, Token (punctuator), "}"));
 							if (result) {
 								end_tokenizer (&g_tokenizer, 0);
 								unit->manifest.cc_includes = get_next_from_tokenizer (&g_tokenizer, begin);
+								*ptokens = next_token (*ptokens, &unit->pos);
+							}
+						} else {
+							Parse_Error (*ptokens, unit->pos, "unexpected token");
+							result = 0;
+						}
+					} else {
+						Parse_Error (*ptokens, unit->pos, "redefinition of manifest cc_include_paths");
+						result = 0;
+					}
+				} else if (0 == strcmp (*ptokens, "cc_sources")) {
+					if (!unit->manifest.cc_sources) {
+						*ptokens = next_token (*ptokens, &unit->pos);
+						if (is_token (*ptokens, Token (punctuator), "{")) {
+							char	*begin;
+
+							begin = g_tokenizer.current;
+							*ptokens = next_token (*ptokens, &unit->pos);
+							do {
+								if ((*ptokens)[-1] == Token (identifier)) {
+									const char	*inserter;
+
+									inserter = find_inserter (*ptokens);
+									if (inserter) {
+										result = copy_token (&g_tokenizer, inserter);
+										*ptokens = next_token (*ptokens, &unit->pos);
+									} else {
+										if (next_token (*ptokens, 0)[-1] == Token (string)) {
+											*ptokens = next_token (*ptokens, &unit->pos);
+											result = copy_token (&g_tokenizer, *ptokens);
+											*ptokens = next_token (*ptokens, &unit->pos);
+										} else {
+											Parse_Error (*ptokens, unit->pos, "undeclared inserter");
+											result = 0;
+										}
+									}
+								} else if ((*ptokens)[-1] == Token (string)) {
+									if (copy_token (&g_tokenizer, *ptokens)) {
+										*ptokens = next_token (*ptokens, &unit->pos);
+										result = 1;
+									} else {
+										Parse_Error (*ptokens, unit->pos, "cannot copy token");
+										result = 0;
+									}
+								} else {
+									Parse_Error (*ptokens, unit->pos, "unexpected token");
+									result = 0;
+								}
+								if (result) {
+									if (is_token (*ptokens, Token (punctuator), ";")) {
+										*ptokens = next_token (*ptokens, &unit->pos);
+										result = 1;
+									} else {
+										Parse_Error (*ptokens, unit->pos, "unexpected token");
+										result = 0;
+									}
+								}
+							} while (result && !is_token (*ptokens, Token (punctuator), "}"));
+							if (result) {
+								end_tokenizer (&g_tokenizer, 0);
+								unit->manifest.cc_sources = get_next_from_tokenizer (&g_tokenizer, begin);
 								*ptokens = next_token (*ptokens, &unit->pos);
 							}
 						} else {
@@ -1468,16 +1896,27 @@ int		parse_manifest_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 							begin = g_tokenizer.current;
 							*ptokens = next_token (*ptokens, &unit->pos);
 							do {
-								if ((*ptokens)[-1] == Token (string)) {
-									if (copy_token (&g_tokenizer, *ptokens)) {
+								if ((*ptokens)[-1] == Token (identifier)) {
+									const char	*inserter;
+
+									inserter = find_inserter (*ptokens);
+									if (inserter) {
+										result = copy_token (&g_tokenizer, inserter);
 										*ptokens = next_token (*ptokens, &unit->pos);
-										if (is_token (*ptokens, Token (punctuator), ";")) {
+									} else {
+										if (next_token (*ptokens, 0)[-1] == Token (string)) {
 											*ptokens = next_token (*ptokens, &unit->pos);
-											result = 1;
+											result = copy_token (&g_tokenizer, *ptokens);
+											*ptokens = next_token (*ptokens, &unit->pos);
 										} else {
-											Parse_Error (*ptokens, unit->pos, "unexpected token");
+											Parse_Error (*ptokens, unit->pos, "undeclared inserter");
 											result = 0;
 										}
+									}
+								} else if ((*ptokens)[-1] == Token (string)) {
+									if (copy_token (&g_tokenizer, *ptokens)) {
+										*ptokens = next_token (*ptokens, &unit->pos);
+										result = 1;
 									} else {
 										Parse_Error (*ptokens, unit->pos, "cannot copy token");
 										result = 0;
@@ -1485,6 +1924,15 @@ int		parse_manifest_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 								} else {
 									Parse_Error (*ptokens, unit->pos, "unexpected token");
 									result = 0;
+								}
+								if (result) {
+									if (is_token (*ptokens, Token (punctuator), ";")) {
+										*ptokens = next_token (*ptokens, &unit->pos);
+										result = 1;
+									} else {
+										Parse_Error (*ptokens, unit->pos, "unexpected token");
+										result = 0;
+									}
 								}
 							} while (result && !is_token (*ptokens, Token (punctuator), "}"));
 							if (result) {
@@ -1509,16 +1957,27 @@ int		parse_manifest_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 							begin = g_tokenizer.current;
 							*ptokens = next_token (*ptokens, &unit->pos);
 							do {
-								if ((*ptokens)[-1] == Token (string)) {
-									if (copy_token (&g_tokenizer, *ptokens)) {
+								if ((*ptokens)[-1] == Token (identifier)) {
+									const char	*inserter;
+
+									inserter = find_inserter (*ptokens);
+									if (inserter) {
+										result = copy_token (&g_tokenizer, inserter);
 										*ptokens = next_token (*ptokens, &unit->pos);
-										if (is_token (*ptokens, Token (punctuator), ";")) {
+									} else {
+										if (next_token (*ptokens, 0)[-1] == Token (string)) {
 											*ptokens = next_token (*ptokens, &unit->pos);
-											result = 1;
+											result = copy_token (&g_tokenizer, *ptokens);
+											*ptokens = next_token (*ptokens, &unit->pos);
 										} else {
-											Parse_Error (*ptokens, unit->pos, "unexpected token");
+											Parse_Error (*ptokens, unit->pos, "undeclared inserter");
 											result = 0;
 										}
+									}
+								} else if ((*ptokens)[-1] == Token (string)) {
+									if (copy_token (&g_tokenizer, *ptokens)) {
+										*ptokens = next_token (*ptokens, &unit->pos);
+										result = 1;
 									} else {
 										Parse_Error (*ptokens, unit->pos, "cannot copy token");
 										result = 0;
@@ -1526,6 +1985,15 @@ int		parse_manifest_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 								} else {
 									Parse_Error (*ptokens, unit->pos, "unexpected token");
 									result = 0;
+								}
+								if (result) {
+									if (is_token (*ptokens, Token (punctuator), ";")) {
+										*ptokens = next_token (*ptokens, &unit->pos);
+										result = 1;
+									} else {
+										Parse_Error (*ptokens, unit->pos, "unexpected token");
+										result = 0;
+									}
 								}
 							} while (result && !is_token (*ptokens, Token (punctuator), "}"));
 							if (result) {
@@ -1550,16 +2018,27 @@ int		parse_manifest_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 							begin = g_tokenizer.current;
 							*ptokens = next_token (*ptokens, &unit->pos);
 							do {
-								if ((*ptokens)[-1] == Token (string)) {
-									if (copy_token (&g_tokenizer, *ptokens)) {
+								if ((*ptokens)[-1] == Token (identifier)) {
+									const char	*inserter;
+
+									inserter = find_inserter (*ptokens);
+									if (inserter) {
+										result = copy_token (&g_tokenizer, inserter);
 										*ptokens = next_token (*ptokens, &unit->pos);
-										if (is_token (*ptokens, Token (punctuator), ";")) {
+									} else {
+										if (next_token (*ptokens, 0)[-1] == Token (string)) {
 											*ptokens = next_token (*ptokens, &unit->pos);
-											result = 1;
+											result = copy_token (&g_tokenizer, *ptokens);
+											*ptokens = next_token (*ptokens, &unit->pos);
 										} else {
-											Parse_Error (*ptokens, unit->pos, "unexpected token");
+											Parse_Error (*ptokens, unit->pos, "undeclared inserter");
 											result = 0;
 										}
+									}
+								} else if ((*ptokens)[-1] == Token (string)) {
+									if (copy_token (&g_tokenizer, *ptokens)) {
+										*ptokens = next_token (*ptokens, &unit->pos);
+										result = 1;
 									} else {
 										Parse_Error (*ptokens, unit->pos, "cannot copy token");
 										result = 0;
@@ -1567,6 +2046,15 @@ int		parse_manifest_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 								} else {
 									Parse_Error (*ptokens, unit->pos, "unexpected token");
 									result = 0;
+								}
+								if (result) {
+									if (is_token (*ptokens, Token (punctuator), ";")) {
+										*ptokens = next_token (*ptokens, &unit->pos);
+										result = 1;
+									} else {
+										Parse_Error (*ptokens, unit->pos, "unexpected token");
+										result = 0;
+									}
 								}
 							} while (result && !is_token (*ptokens, Token (punctuator), "}"));
 							if (result) {
@@ -1591,16 +2079,27 @@ int		parse_manifest_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 							begin = g_tokenizer.current;
 							*ptokens = next_token (*ptokens, &unit->pos);
 							do {
-								if ((*ptokens)[-1] == Token (string)) {
-									if (copy_token (&g_tokenizer, *ptokens)) {
+								if ((*ptokens)[-1] == Token (identifier)) {
+									const char	*inserter;
+
+									inserter = find_inserter (*ptokens);
+									if (inserter) {
+										result = copy_token (&g_tokenizer, inserter);
 										*ptokens = next_token (*ptokens, &unit->pos);
-										if (is_token (*ptokens, Token (punctuator), ";")) {
+									} else {
+										if (next_token (*ptokens, 0)[-1] == Token (string)) {
 											*ptokens = next_token (*ptokens, &unit->pos);
-											result = 1;
+											result = copy_token (&g_tokenizer, *ptokens);
+											*ptokens = next_token (*ptokens, &unit->pos);
 										} else {
-											Parse_Error (*ptokens, unit->pos, "unexpected token");
+											Parse_Error (*ptokens, unit->pos, "undeclared inserter");
 											result = 0;
 										}
+									}
+								} else if ((*ptokens)[-1] == Token (string)) {
+									if (copy_token (&g_tokenizer, *ptokens)) {
+										*ptokens = next_token (*ptokens, &unit->pos);
+										result = 1;
 									} else {
 										Parse_Error (*ptokens, unit->pos, "cannot copy token");
 										result = 0;
@@ -1608,6 +2107,15 @@ int		parse_manifest_decl_flow (struct unit *unit, uint scope_index, char **ptoke
 								} else {
 									Parse_Error (*ptokens, unit->pos, "unexpected token");
 									result = 0;
+								}
+								if (result) {
+									if (is_token (*ptokens, Token (punctuator), ";")) {
+										*ptokens = next_token (*ptokens, &unit->pos);
+										result = 1;
+									} else {
+										Parse_Error (*ptokens, unit->pos, "unexpected token");
+										result = 0;
+									}
 								}
 							} while (result && !is_token (*ptokens, Token (punctuator), "}"));
 							if (result) {
@@ -1703,7 +2211,11 @@ int		parse_unit_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 							uint	func_scope;
 
 							decl = make_func_decl (unit, scope_index, name, type_index, 0, type->mod.param_scope, line);
-							*out = make_decl_flow (unit, decl, line);
+							if (0 == strcmp (name, "main") && (!unit->flags[Flag (entry)] || unit->flags[Flag (lib)])) {
+								*out = 0;
+							} else {
+								*out = make_decl_flow (unit, decl, line);
+							}
 							*ptokens = next_token (*ptokens, &unit->pos);
 							func_scope = make_scope (unit, ScopeKind (func), scope_index);
 							get_scope (unit, func_scope)->param_scope = type->mod.param_scope;
@@ -1775,6 +2287,8 @@ int		parse_unit_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 			result = parse_macro_decl_flow (unit, scope_index, ptokens, out);
 		} else if (0 == strcmp (*ptokens, "type")) {
 			result = parse_type_decl_flow (unit, scope_index, ptokens, out);
+		} else if (0 == strcmp (*ptokens, "opaque")) {
+			result = parse_opaque_decl_flow (unit, scope_index, ptokens, out);
 		} else if (0 == strcmp (*ptokens, "funcprefix")) {
 			result = parse_funcprefix_decl_flow (unit, scope_index, ptokens, out);
 		} else if (0 == strcmp (*ptokens, "builtin")) {
@@ -1791,8 +2305,11 @@ int		parse_unit_scope_flow (struct unit *unit, uint scope_index, char **ptokens,
 			Parse_Error (*ptokens, unit->pos, "unexpected token");
 			result = 0;
 		}
-	} else {
+	} else if ((*ptokens)[-1] == Token (eof)) {
 		result = 2;
+	} else {
+		Parse_Error (*ptokens, unit->pos, "unexpected token");
+		result = 0;
 	}
 	return (result);
 }
@@ -1809,66 +2326,127 @@ int		parse_struct_tag_scope_flow (struct unit *unit, uint scope_index, char **pt
 			Parse_Error (*ptokens, unit->pos, "reserved hint word");
 			result = 0;
 		} else {
-			const char	*name;
+			const char	*names[32];
+			int		names_count;
 			int		line;
+			int		is_continue;
 
 			line = unit->pos.line;
-			name = *ptokens;
-			*ptokens = next_token (*ptokens, &unit->pos);
-			if (is_token (*ptokens, Token (punctuator), "{")) {
-				uint			scope;
-				enum tagtype	tagtype;
-
-				if (0 == strcmp (name, "struct")) {
-					tagtype = TagType (struct);
-					name = 0;
-					result = 1;
-				} else if (0 == strcmp (name, "union")) {
-					tagtype = TagType (union);
-					name = 0;
-					result = 1;
-				} else {
-					tagtype = TagType (struct);
-					result = 1;
-				}
-				if (result) {
+			names_count = 0;
+			do {
+				Assert (names_count < Array_Count (names));
+				names[names_count] = *ptokens;
+				names_count += 1;
+				*ptokens = next_token (*ptokens, &unit->pos);
+				if (is_token (*ptokens, Token (punctuator), ",")) {
 					*ptokens = next_token (*ptokens, &unit->pos);
-					scope = make_tag_scope (unit, tagtype, scope_index);
-					if (parse_scope (unit, scope, ptokens)) {
-						if (is_token (*ptokens, Token (punctuator), "}")) {
-							uint	decl;
-
-							*ptokens = next_token (*ptokens, &unit->pos);
-							decl = make_block_decl (unit, scope_index, name, scope, line);
-							*out = make_decl_flow (unit, decl, line);
-							result = 1;
-						} else {
-							Parse_Error (*ptokens, unit->pos, "unexpected token");
-							result = 0;
-						}
-					} else {
-						Parse_Error (*ptokens, unit->pos, "cannot parse %s scope", g_tagname [tagtype]);
-						result = 0;
-					}
-				}
-			} else {
-				uint	type_index;
-
-				if (parse_type (unit, ptokens, &type_index)) {
-					if (is_token (*ptokens, Token (punctuator), ";")) {
-						uint	decl;
-
-						*ptokens = next_token (*ptokens, &unit->pos);
-						decl = make_var_decl (unit, scope_index, name, type_index, line);
-						*out = make_decl_flow (unit, decl, line);
+					if ((*ptokens)[-1] == Token (identifier)) {
 						result = 1;
 					} else {
 						Parse_Error (*ptokens, unit->pos, "unexpected token");
 						result = 0;
 					}
+					is_continue = 1;
 				} else {
-					Parse_Error (*ptokens, unit->pos, "cannot parse type");
-					result = 0;
+					result = 1;
+					is_continue = 0;
+				}
+			} while (result && is_continue);
+			if (result) {
+				if (is_token (*ptokens, Token (punctuator), "{")) {
+					if (names_count == 1) {
+						uint			scope;
+						enum tagtype	tagtype;
+
+						if (0 == strcmp (names[0], "struct")) {
+							tagtype = TagType (struct);
+							names[0] = 0;
+							result = 1;
+						} else if (0 == strcmp (names[0], "union")) {
+							tagtype = TagType (union);
+							names[0] = 0;
+							result = 1;
+						} else {
+							tagtype = TagType (struct);
+							result = 1;
+						}
+						if (result) {
+							*ptokens = next_token (*ptokens, &unit->pos);
+							scope = make_tag_scope (unit, tagtype, scope_index);
+							if (parse_scope (unit, scope, ptokens)) {
+								if (is_token (*ptokens, Token (punctuator), "}")) {
+									uint	decl;
+
+									*ptokens = next_token (*ptokens, &unit->pos);
+									decl = make_block_decl (unit, scope_index, names[0], scope, line);
+									*out = make_decl_flow (unit, decl, line);
+									result = 1;
+								} else {
+									Parse_Error (*ptokens, unit->pos, "unexpected token");
+									result = 0;
+								}
+							} else {
+								result = 0;
+							}
+						}
+					} else {
+						Parse_Error (*ptokens, unit->pos, "unexpected token");
+						result = 0;
+					}
+				} else {
+					uint	type_index;
+					char	*type_tokens;
+					struct position	type_pos;
+
+					type_pos = unit->pos;
+					type_tokens = *ptokens;
+					if (parse_type (unit, ptokens, &type_index)) {
+						if (is_token (*ptokens, Token (punctuator), ";")) {
+							uint	decl;
+
+							*ptokens = next_token (*ptokens, &unit->pos);
+							decl = make_var_decl (unit, scope_index, names[0], type_index, line);
+							*out = make_decl_flow (unit, decl, line);
+							if (names_count > 1) {
+								uint	last_flow_index, flow_index;
+								int		name_index;
+
+								name_index = 1;
+								last_flow_index = *out;
+								do {
+									char	*tokens;
+									struct position	orig_pos;
+
+									tokens = type_tokens;
+									orig_pos = unit->pos;
+									unit->pos = type_pos;
+									if (parse_type (unit, &tokens, &type_index)) {
+										if (is_token (tokens, Token (punctuator), ";")) {
+											decl = make_var_decl (unit, scope_index, names[name_index], type_index, line);
+											flow_index = make_decl_flow (unit, decl, line);
+											get_flow (unit, last_flow_index)->next = flow_index;
+											last_flow_index = flow_index;
+											unit->pos = orig_pos;
+											result = 1;
+										} else {
+											Parse_Error (tokens, unit->pos, "unexpected token");
+											result = 0;
+										}
+									} else {
+										result = 0;
+									}
+									name_index += 1;
+								} while (result && name_index < names_count);
+							} else {
+								result = 1;
+							}
+						} else {
+							Parse_Error (*ptokens, unit->pos, "unexpected token");
+							result = 0;
+						}
+					} else {
+						result = 0;
+					}
 				}
 			}
 		}
@@ -1884,50 +2462,20 @@ int		parse_enum_tag_scope_flow (struct unit *unit, uint scope_index, char **ptok
 	*out = 0;
 	if ((*ptokens)[-1] == Token (identifier)) {
 		const char	*name;
-		uint		expr;
-		int			is_params;
 		uint		params;
 		int			line;
 
 		line = unit->pos.line;
-		is_params = 0;
 		params = 0;
 		name = *ptokens;
-		*ptokens = next_token (*ptokens, &unit->pos);
-		if (is_token (*ptokens, Token (punctuator), "=") && !get_scope (unit, scope_index)->param_scope) {
+		do {
 			*ptokens = next_token (*ptokens, &unit->pos);
-			if (parse_expr (unit, ptokens, &expr)) {
-				if (expr) {
-					if (is_token (*ptokens, Token (punctuator), ";")) {
-						*ptokens = next_token (*ptokens, &unit->pos);
-						result = 1;
-					} else {
-						Parse_Error (*ptokens, unit->pos, "unexpected token");
-						result = 0;
-					}
-				} else {
-					Parse_Error (*ptokens, unit->pos, "empty expression");
-					result = 0;
-				}
-			} else {
-				result = 0;
-			}
-		} else if (is_token (*ptokens, Token (punctuator), ",")) {
-			is_params = 1;
-			expr = 0;
-			result = 1;
-		} else if (is_token (*ptokens, Token (punctuator), ";")) {
-			*ptokens = next_token (*ptokens, &unit->pos);
-			expr = 0;
-			result = 1;
-		} else {
-			Parse_Error (*ptokens, unit->pos, "unexpected token");
-			result = 0;
-		}
-		if (result && is_params) {
+		} while ((*ptokens)[-1] == Token (identifier));
+		if (is_token (*ptokens, Token (punctuator), ",")) {
 			uint	prev_params;
 
 			prev_params = 0;
+			result = 1;
 			while (result && (*ptokens)[-1] && !is_token (*ptokens, Token (punctuator), ";")) {
 				if (is_token (*ptokens, Token (punctuator), ",")) {
 					uint	param_index;
@@ -1958,11 +2506,17 @@ int		parse_enum_tag_scope_flow (struct unit *unit, uint scope_index, char **ptok
 				Assert (is_token (*ptokens, Token (punctuator), ";"));
 				*ptokens = next_token (*ptokens, &unit->pos);
 			}
+		} else if (is_token (*ptokens, Token (punctuator), ";")) {
+			*ptokens = next_token (*ptokens, &unit->pos);
+			result = 1;
+		} else {
+			Parse_Error (*ptokens, unit->pos, "unexpected token");
+			result = 0;
 		}
 		if (result) {
 			uint	decl;
 
-			decl = make_enum_decl (unit, scope_index, name, expr, params, line);
+			decl = make_enum_decl (unit, scope_index, name, params, line);
 			*out = make_decl_flow (unit, decl, line);
 		}
 	} else {
@@ -2027,6 +2581,7 @@ int		parse_macro_scope_flow (struct unit *unit, uint scope_index, char **ptokens
 int		parse_scope (struct unit *unit, uint scope_index, char **ptokens) {
 	int				result;
 	struct scope	*scope;
+	int				is_decl_state;
 
 	scope = get_scope (unit, scope_index);
 	if (scope->kind == ScopeKind (func)) {
@@ -2042,13 +2597,13 @@ int		parse_scope (struct unit *unit, uint scope_index, char **ptokens) {
 			uint	decl_index;
 			uint	flow_index;
 
-			type_index = make_type_copy (unit, unit, get_type_index (unit, type));
+			type_index = make_type_copy (unit, unit, get_type_index (unit, type), scope_index);
 			decl_index = make_var_decl (unit, scope_index, "result", type_index, unit->pos.line);
 			flow_index = make_decl_flow (unit, decl_index, unit->pos.line);
 			add_flow_to_scope (unit, scope_index, flow_index);
 		}
 	}
-	result = 1;
+	is_decl_state = 1;
 	do {
 		uint	flow_index;
 
@@ -2056,7 +2611,10 @@ int		parse_scope (struct unit *unit, uint scope_index, char **ptokens) {
 		if (scope->kind == ScopeKind (unit)) {
 			result = parse_unit_scope_flow (unit, scope_index, ptokens, &flow_index);
 		} else if (scope->kind == ScopeKind (func) || scope->kind == ScopeKind (code)) {
-			result = parse_code_scope_flow (unit, scope_index, ptokens, &flow_index);
+			result = parse_code_scope_flow (unit, scope_index, ptokens, is_decl_state, &flow_index);
+			if (result && flow_index && is_decl_state && get_flow (unit, flow_index)->type != FlowType (decl)) {
+				is_decl_state = 0;
+			}
 		} else if (scope->kind == ScopeKind (tag)) {
 			if (scope->tagtype == TagType (struct) || scope->tagtype == TagType (union)) {
 				result = parse_struct_tag_scope_flow (unit, scope_index, ptokens, &flow_index);
@@ -2131,9 +2689,9 @@ void	print_scope_flow (struct unit *unit, uint flow_index, int indent, enum scop
 			print_scope (unit, decl->block.scope, indent + 1, file);
 			fprintf (file, "%*.s}\n", indent * 4, "");
 		} else if (decl->kind == DeclKind (enum)) {
-			if (decl->enumt.expr) {
-				fprintf (file, "%*.s%s = ", indent * 4, "", decl->name);
-				print_expr (unit, decl->enumt.expr, file);
+			if (decl->enumt.params) {
+				fprintf (file, "%*.s%s, ", indent * 4, "", decl->name);
+				print_expr (unit, decl->enumt.params, file);
 				fprintf (file, ";\n");
 			} else {
 				fprintf (file, "%*.s%s;\n", indent * 4, "", decl->name);
@@ -2171,6 +2729,8 @@ void	print_scope_flow (struct unit *unit, uint flow_index, int indent, enum scop
 				fprintf (file, "%*.s#type %s ", indent * 4, "", decl->name);
 				print_type (unit, decl->type, file);
 				fprintf (file, ";\n");
+			} else if (decl->define.kind == DefineKind (opaque)) {
+				fprintf (file, "%*.s#opaque %s;\n", indent * 4, "", decl->name);
 			} else if (decl->define.kind == DefineKind (visability)) {
 				fprintf (file, "%*.s#visability %s %s;\n", indent * 4, "", decl->define.visability.target, g_visability[decl->define.visability.type]);
 			} else if (decl->define.kind == DefineKind (funcprefix)) {
@@ -2369,5 +2929,19 @@ int		count_decls_in_scope (struct unit *unit, uint scope_index) {
 	return (count);
 }
 
+int		count_flows_in_scope (struct unit *unit, uint scope_index) {
+	struct scope	*scope;
+	int				count;
+	uint			flow_index;
+
+	scope = get_scope (unit, scope_index);
+	count = 0;
+	flow_index = scope->flow_begin;
+	while (flow_index) {
+		count += 1;
+		flow_index = get_flow (unit, flow_index)->next;
+	}
+	return (count);
+}
 
 

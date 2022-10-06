@@ -94,16 +94,8 @@ int		size_type (struct unit *unit, uint type_index, struct sizevalue *value) {
 						result = 0;
 					}
 				} else {
-					type->mod.count = 0;
-					if (value) {
-						if (unit->flags[Flag (build32)]) {
-							value->size = 4;
-						} else {
-							value->size = 8;
-						}
-						value->alignment = value->size;
-					}
-					result = 1;
+					Error ("array must have a size");
+					result = 0;
 				}
 			} else {
 				result = 0;
@@ -149,6 +141,13 @@ int		size_type (struct unit *unit, uint type_index, struct sizevalue *value) {
 		} else {
 			result = 1;
 		}
+	} else if (type->kind == TypeKind (opaque)) {
+		if (value) {
+			value->size = 1;
+			value->alignment = 1;
+		} else {
+			result = 1;
+		}
 	} else {
 		Unreachable ();
 	}
@@ -186,7 +185,7 @@ int		size_tag_typemembers (struct unit *unit, uint typemember_index, enum tagtyp
 			member = get_typemember (unit, typemember_index);
 			if (member->name) {
 				*pcount += 1;
-				typemember_index = Get_Next_Bucket_Index (unit->typemembers, typemember_index);
+				typemember_index = Get_Next_Bucket_Index (unit->buckets->typemembers, typemember_index);
 			} else {
 				typemember_index = 0;
 			}
@@ -229,7 +228,7 @@ int		size_tag_typemembers (struct unit *unit, uint typemember_index, enum tagtyp
 				} else {
 					result = 1;
 				}
-				typemember_index = Get_Next_Bucket_Index (unit->typemembers, typemember_index);
+				typemember_index = Get_Next_Bucket_Index (unit->buckets->typemembers, typemember_index);
 			} else {
 				typemember_index = 0;
 			}
@@ -340,7 +339,7 @@ int		size_typeinfo (struct unit *unit, uint typeinfo_index) {
 							member->offset = 0;
 							member->value = 0;
 						}
-						typemember_index = Get_Next_Bucket_Index (unit->typemembers, typemember_index);
+						typemember_index = Get_Next_Bucket_Index (unit->buckets->typemembers, typemember_index);
 					} else {
 						typemember_index = 0;
 					}
@@ -436,9 +435,12 @@ int		size_typestack (struct unit *unit, struct typestack *typestack, struct size
 int		size_expr (struct unit *unit, int expr_index, struct typestack *typestack) {
 	int			result;
 	struct expr	*expr;
+	int			old_sizeof_context;
 
 	//Debug ("size expr start");
 	expr = get_expr (unit, expr_index);
+	old_sizeof_context = typestack->is_sizeof_context;
+	typestack->is_sizeof_context = is_typestack_sizeof_context (typestack, expr);
 	if (expr->type == ExprType (op)) {
 		if (expr->op.type == OpType (function_call)) {
 			if (size_expr (unit, expr->op.forward, typestack)) {
@@ -457,7 +459,7 @@ int		size_expr (struct unit *unit, int expr_index, struct typestack *typestack) 
 			if (size_expr (unit, expr->op.forward, typestack)) {
 				struct typestack	rightstack = {0};
 
-				init_typestack (&rightstack);
+				init_typestack (&rightstack, 0);
 				if (size_expr (unit, expr->op.backward, &rightstack)) {
 					update_typestack (unit, expr, typestack, &rightstack);
 					result = 1;
@@ -483,8 +485,8 @@ int		size_expr (struct unit *unit, int expr_index, struct typestack *typestack) 
 		} else if (expr->op.type == OpType (typesizeof) || expr->op.type == OpType (typealignof)) {
 			struct sizevalue	value = {0};
 
-			Assert (expr->op.forward);
-			if (size_type (unit, expr->op.forward, &value)) {
+			Assert (expr->op.backward);
+			if (size_type (unit, expr->op.backward, &value)) {
 				enum optype	optype;
 
 				optype = expr->op.type;
@@ -504,14 +506,9 @@ int		size_expr (struct unit *unit, int expr_index, struct typestack *typestack) 
 				result = 0;
 			}
 		} else if (expr->op.type == OpType (sizeof) || expr->op.type == OpType (alignof)) {
-			int		old_sizeof_context;
-
-			old_sizeof_context = typestack->is_sizeof_context;
-			typestack->is_sizeof_context = 1;
 			if (size_expr (unit, expr->op.forward, typestack)) {
 				struct sizevalue	value = {0};
 
-				typestack->is_sizeof_context = old_sizeof_context;
 				if (size_typestack (unit, typestack, &value)) {
 					enum optype	optype;
 
@@ -543,7 +540,7 @@ int		size_expr (struct unit *unit, int expr_index, struct typestack *typestack) 
 				if (size_expr (unit, expr->op.backward, typestack)) {
 					struct typestack	rightstack = {0};
 
-					init_typestack (&rightstack);
+					init_typestack (&rightstack, 0);
 					if (size_expr (unit, expr->op.forward, &rightstack)) {
 						update_typestack (unit, expr, typestack, &rightstack);
 						result = 1;
@@ -557,7 +554,7 @@ int		size_expr (struct unit *unit, int expr_index, struct typestack *typestack) 
 		}
 	} else if (expr->type == ExprType (funcparam)) {
 		if (expr->funcparam.expr) {
-			init_typestack (typestack);
+			init_typestack (typestack, typestack->is_sizeof_context);
 			result = size_expr (unit, expr->funcparam.expr, typestack);
 		} else {
 			result = 1;
@@ -598,7 +595,7 @@ int		size_expr (struct unit *unit, int expr_index, struct typestack *typestack) 
 				result = 0;
 			}
 		} else {
-			init_typestack (typestack);
+			init_typestack (typestack, typestack->is_sizeof_context);
 			push_typestack_recursive (unit, decl_unit, typestack, decl->type);
 			result = 1;
 		}
@@ -619,7 +616,7 @@ int		size_expr (struct unit *unit, int expr_index, struct typestack *typestack) 
 				}
 			} else {
 				if (left->kind == TypeKind (tag) && left->tag.type == TagType (enum)) {
-					init_typestack (typestack);
+					init_typestack (typestack, typestack->is_sizeof_context);
 					push_basictype_to_typestack (typestack, BasicType (int), 0);
 				}
 				typestack->value = ValueCategory (lvalue);
@@ -629,6 +626,7 @@ int		size_expr (struct unit *unit, int expr_index, struct typestack *typestack) 
 		update_typestack (unit, expr, typestack, 0);
 		result = 1;
 	}
+	typestack->is_sizeof_context = old_sizeof_context;
 	//Debug ("size expr end");
 	return (result);
 }
@@ -655,11 +653,11 @@ int		size_tag_scope (struct unit *unit, uint scope_index, struct sizevalue *valu
 		decl = get_decl (unit, scope->decl_begin);
 		do {
 			if (scope->tagtype == TagType (enum)) {
-				if (decl->enumt.expr) {
+				if (decl->enumt.params) {
 					struct typestack	typestack = {0};
 
-					init_typestack (&typestack);
-					result = size_expr (unit, decl->enumt.expr, &typestack);
+					init_typestack (&typestack, 0);
+					result = size_expr (unit, decl->enumt.params, &typestack);
 				} else {
 					result = 1;
 				}
@@ -676,7 +674,7 @@ int		size_tag_scope (struct unit *unit, uint scope_index, struct sizevalue *valu
 							decl->alignment = blocksize.alignment;
 							Assert (blocksize.alignment > 0);
 							if (offset % blocksize.alignment) {
-								offset += blocksize.alignment - (offset % blocksize.alignment);
+								offset += get_alignment_diff (offset, blocksize.alignment);
 							}
 							decl->offset = offset;
 							offset += blocksize.size;
@@ -699,7 +697,7 @@ int		size_tag_scope (struct unit *unit, uint scope_index, struct sizevalue *valu
 						decl->size = membervalue.size;
 						Assert (membervalue.alignment > 0);
 						if (offset % membervalue.alignment) {
-							offset += membervalue.alignment - (offset % membervalue.alignment);
+							offset += get_alignment_diff (offset, membervalue.alignment);
 						}
 						decl->offset = offset;
 						offset += membervalue.size;
@@ -722,7 +720,7 @@ int		size_tag_scope (struct unit *unit, uint scope_index, struct sizevalue *valu
 		} while (result && decl);
 		if (result && scope->tagtype != TagType (enum)) {
 			if (offset % value->alignment) {
-				offset += value->alignment - (offset % value->alignment);
+				offset += get_alignment_diff (offset, value->alignment);
 			}
 			value->size = offset;
 		}
@@ -742,15 +740,19 @@ int		size_flow (struct unit *unit, uint flow_index, struct typestack *typestack)
 	if (flow->type == FlowType (decl)) {
 		result = size_decl (unit, flow->decl.index, 0);
 	} else if (flow->type == FlowType (expr)) {
-		result = size_expr (unit, flow->expr.index, typestack);
+		if (flow->expr.index) {
+			result = size_expr (unit, flow->expr.index, typestack);
+		} else {
+			result = 1;
+		}
 	} else if (flow->type == FlowType (block)) {
 		result = size_code_scope (unit, flow->block.scope, typestack);
 	} else if (flow->type == FlowType (if)) {
 		if (size_expr (unit, flow->fif.expr, typestack)) {
-			init_typestack (typestack);
+			init_typestack (typestack, typestack->is_sizeof_context);
 			if (size_flow (unit, flow->fif.flow_body, typestack)) {
 				if (flow->fif.else_body) {
-					init_typestack (typestack);
+					init_typestack (typestack, typestack->is_sizeof_context);
 					result = size_flow (unit, flow->fif.else_body, typestack);
 				} else {
 					result = 1;
@@ -763,18 +765,26 @@ int		size_flow (struct unit *unit, uint flow_index, struct typestack *typestack)
 		}
 	} else if (flow->type == FlowType (while)) {
 		if (size_expr (unit, flow->fwhile.expr, typestack)) {
-			init_typestack (typestack);
+			init_typestack (typestack, typestack->is_sizeof_context);
 			result = size_flow (unit, flow->fwhile.flow_body, typestack);
 		} else {
 			result = 0;
 		}
 	} else if (flow->type == FlowType (dowhile)) {
 		if (size_flow (unit, flow->dowhile.flow_body, typestack)) {
-			init_typestack (typestack);
+			init_typestack (typestack, typestack->is_sizeof_context);
 			result = size_expr (unit, flow->dowhile.expr, typestack);
 		} else {
 			result = 0;
 		}
+	} else if (flow->type == FlowType (assert)) {
+		if (size_expr (unit, flow->assert.expr, typestack)) {
+			result = 1;
+		} else {
+			result = 0;
+		}
+	} else if (flow->type == FlowType (assert) || flow->type == FlowType (static_assert) || flow->type == FlowType (unreachable)) {
+		result = 1;
 	} else {
 		Unreachable ();
 	}
@@ -793,7 +803,7 @@ int		size_code_scope (struct unit *unit, uint scope_index, struct typestack *typ
 
 		flow = get_flow (unit, scope->flow_begin);
 		do {
-			init_typestack (typestack);
+			init_typestack (typestack, typestack->is_sizeof_context);
 			result = size_flow (unit, get_flow_index (unit, flow), typestack);
 			if (flow->next) {
 				flow = get_flow (unit, flow->next);
@@ -802,7 +812,7 @@ int		size_code_scope (struct unit *unit, uint scope_index, struct typestack *typ
 			}
 		} while (result && flow);
 	} else {
-		Unreachable ();
+		result = 1;
 	}
 	//Debug ("size code scope end");
 	return (result);
@@ -839,9 +849,27 @@ int		size_decl (struct unit *unit, uint decl_index, int is_global) {
 		if (decl->kind == DeclKind (var)) {
 			if (!decl->is_sized) {
 				struct sizevalue	value = {0};
+				struct type			*type;
 
 				decl->is_in_process = 1;
-				result = size_type (unit, decl->type, &value);
+				type = get_type (unit, decl->type);
+				if (type->kind == TypeKind (mod) && type->mod.kind == TypeMod (array) && !type->mod.expr) {
+					if (decl->var.init_scope) {
+						type->mod.count = count_flows_in_scope (unit, decl->var.init_scope);
+						Assert (type->mod.count);
+						if (size_type (unit, type->mod.forward, &value)) {
+							value.size *= type->mod.count;
+							result = 1;
+						} else {
+							result = 0;
+						}
+					} else {
+						Error ("array must have a size");
+						result = 0;
+					}
+				} else {
+					result = size_type (unit, decl->type, &value);
+				}
 				decl->size = value.size;
 				decl->alignment = value.alignment;
 				decl->is_in_process = 0;
@@ -857,13 +885,20 @@ int		size_decl (struct unit *unit, uint decl_index, int is_global) {
 				struct sizevalue	value = {0};
 
 				decl->is_in_process = 1;
-				if (size_tag_scope (unit, decl->tag.scope, &value)) {
-					decl->size = value.size;
-					decl->alignment = value.alignment;
+				if (is_opaque_tag_decl (decl)) {
+					decl->size = 1;
+					decl->alignment = 1;
 					decl->offset = 0;
 					result = 1;
 				} else {
-					result = 0;
+					if (size_tag_scope (unit, decl->tag.scope, &value)) {
+						decl->size = value.size;
+						decl->alignment = value.alignment;
+						decl->offset = 0;
+						result = 1;
+					} else {
+						result = 0;
+					}
 				}
 				decl->is_in_process = 0;
 				decl->is_sized = 1;
@@ -910,7 +945,7 @@ int		size_decl (struct unit *unit, uint decl_index, int is_global) {
 					}
 				} else if (decl->define.kind == DefineKind (macro) || decl->define.kind == DefineKind (type) || decl->define.kind == DefineKind (visability) ||
 					decl->define.kind == DefineKind (funcprefix) || decl->define.kind == DefineKind (builtin) || decl->define.kind == DefineKind (accessor) ||
-					decl->define.kind == DefineKind (assert)) {
+					decl->define.kind == DefineKind (assert) || decl->define.kind == DefineKind (opaque)) {
 					result = 1;
 				} else {
 					Unreachable ();
@@ -928,12 +963,19 @@ int		size_decl (struct unit *unit, uint decl_index, int is_global) {
 				struct sizevalue	value = {0};
 
 				decl->is_in_process = 1;
-				if (size_tag_scope (unit, decl->tag.scope, &value)) {
-					decl->size = value.size;
-					decl->alignment = value.alignment;
+				if (is_opaque_tag_decl (decl)) {
+					decl->size = 1;
+					decl->alignment = 1;
+					decl->offset = 0;
 					result = 1;
 				} else {
-					result = 0;
+					if (size_tag_scope (unit, decl->tag.scope, &value)) {
+						decl->size = value.size;
+						decl->alignment = value.alignment;
+						result = 1;
+					} else {
+						result = 0;
+					}
 				}
 				decl->is_in_process = 0;
 				decl->is_sized = 1;
@@ -945,14 +987,30 @@ int		size_decl (struct unit *unit, uint decl_index, int is_global) {
 				decl->is_in_process = 1;
 				if (decl->type) {
 					struct sizevalue	value = {0};
+					struct type			*type;
 
-					if (size_type (unit, decl->type, &value)) {
-						decl->size = value.size;
-						decl->alignment = value.alignment;
-						result = 1;
+					type = get_type (unit, decl->type);
+					if (type->kind == TypeKind (mod) && type->mod.kind == TypeMod (array)) {
+						if (size_type (unit, type->mod.forward, &value)) {
+							if (g_is_build32) {
+								value.size = 4;
+							} else {
+								value.size = 8;
+							}
+							value.alignment = value.size;
+							result = 1;
+						} else {
+							result = 0;
+						}
 					} else {
-						result = 0;
+						if (size_type (unit, decl->type, &value)) {
+							result = 1;
+						} else {
+							result = 0;
+						}
 					}
+					decl->size = value.size;
+					decl->alignment = value.alignment;
 				} else {
 					result = 1;
 				}

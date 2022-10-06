@@ -63,7 +63,7 @@ int		add_decl_to_lookup_table (struct unit *unit, struct unit *decl_unit, uint d
 	} else {
 		gindex = decl_index;
 	}
-	decl = Get_Bucket_Element (decl_unit->decls, decl_index);
+	decl = Get_Bucket_Element (decl_unit->buckets->decls, decl_index);
 	if (decl->kind == DeclKind (tag)) {
 		if (Prepare_Array (unit->tags, 1)) {
 			struct declref	*ref;
@@ -105,7 +105,7 @@ int		add_decl_to_lookup_table (struct unit *unit, struct unit *decl_unit, uint d
 				Error ("cannot prepare tags array");
 				result = 0;
 			}
-		} else if (decl->define.kind == DefineKind (type)) {
+		} else if (decl->define.kind == DefineKind (type) || decl->define.kind == DefineKind (opaque)) {
 			if (Prepare_Array (unit->tags, 1)) {
 				struct declref	*ref;
 
@@ -177,9 +177,9 @@ uint64	find_decl_in_table (struct unit *unit, const char *name, enum tagtype tag
 				struct unit	*libunit;
 
 				libunit = Get_Bucket_Element (g_libs, libindex);
-				decl = Get_Bucket_Element (libunit->decls, declindex);
+				decl = Get_Bucket_Element (libunit->buckets->decls, declindex);
 			} else {
-				decl = Get_Bucket_Element (unit->decls, declindex);
+				decl = Get_Bucket_Element (unit->buckets->decls, declindex);
 			}
 			Assert (decl);
 			if (0 == strcmp (decl->name, name)) {
@@ -222,17 +222,17 @@ int		check_declref_array_for_duplicates (struct unit *unit, struct declref *arra
 					struct unit *otherlib;
 
 					otherlib = Get_Bucket_Element (g_libs, elem[0].index >> 32);
-					left = Get_Bucket_Element (otherlib->decls, elem[0].index & 0xFFFFFFFFu);
+					left = Get_Bucket_Element (otherlib->buckets->decls, elem[0].index & 0xFFFFFFFFu);
 				} else {
-					left = Get_Bucket_Element (unit->decls, elem[0].index);
+					left = Get_Bucket_Element (unit->buckets->decls, elem[0].index);
 				}
 				if (elem[1].index >> 32) {
 					struct unit *otherlib;
 
 					otherlib = Get_Bucket_Element (g_libs, elem[1].index >> 32);
-					right = Get_Bucket_Element (otherlib->decls, elem[1].index & 0xFFFFFFFFu);
+					right = Get_Bucket_Element (otherlib->buckets->decls, elem[1].index & 0xFFFFFFFFu);
 				} else {
-					right = Get_Bucket_Element (unit->decls, elem[1].index);
+					right = Get_Bucket_Element (unit->buckets->decls, elem[1].index);
 				}
 				Assert (left && right);
 				if (0 == strcmp (left->name, right->name)) {
@@ -268,8 +268,15 @@ int		initialize_lookup_tables (struct unit *unit) {
 			index = get_scope (libunit, libunit->scope)->decl_begin;
 			result = 1;
 			while (result && index) {
-				result = add_decl_to_lookup_table (unit, libunit, index);
-				index = get_decl (libunit, index)->next;
+				struct decl	*decl;
+
+				decl = get_decl (libunit, index);
+				if (decl->name && decl->name[0] != '_') {
+					result = add_decl_to_lookup_table (unit, libunit, index);
+				} else if (decl->name && decl->kind == DeclKind (define) && decl->define.kind == DefineKind (builtin)) {
+					result = add_decl_to_lookup_table (unit, libunit, index);
+				}
+				index = decl->next;
 			}
 		} else if (libunit->manifest.expose) {
 			const char	*token;
@@ -520,11 +527,17 @@ int		translate_unit_to_c (struct unit *unit, const char *filename) {
 
 		file = fopen (filename, "w");
 		if (file) {
-			if (Get_Array_Count (cbuffer.wr->buffer) == fwrite (cbuffer.wr->buffer, 1, Get_Array_Count (cbuffer.wr->buffer), file)) {
-				result = 1;
-			} else {
-				Error ("not all bytes are written to file");
-				result = 0;
+			char	**ptr;
+
+			ptr = cbuffer.wr->buffer;
+			while (result && *ptr) {
+				if (Get_Array_Count (*ptr) == fwrite (*ptr, 1, Get_Array_Count (*ptr), file)) {
+					result = 1;
+					ptr += 1;
+				} else {
+					Error ("not all bytes are written to file");
+					result = 0;
+				}
 			}
 			fclose (file);
 		} else {
@@ -536,76 +549,154 @@ int		translate_unit_to_c (struct unit *unit, const char *filename) {
 	return (result);
 }
 
-int		compile_unit_c (struct unit *unit, const char *filename) {
-	int		result;
-	char	*ptr;
-	char	command[32 * 1024];
+void	print_cl_cc_sources (struct unit *unit, char **pptr, const char *filepath) {
+	if (unit->manifest.cc_sources) {
+		char	path[256], workdir[256], *ptr2;
+		const char	*token;
 
-	command[0] = 0;
-	ptr = command;
-	ptr += sprintf (ptr, "cl.exe /nologo \"%s\" ", filename);
+		ptr2 = strrchr (filepath, '\\');
+		Assert (ptr2);
+		strncpy (workdir, filepath, ptr2 - filepath + 1);
+		workdir[ptr2 - filepath + 1] = 0;
+		token = unit->manifest.cc_sources;
+		do {
+			if (make_path_from_relative (path, workdir, token)) {
+				*pptr += sprintf (*pptr, "\"%s\" ", path);
+			} else {
+				Error ("cannot get full path of '%s'", token);
+			}
+			token = next_const_token (token, 0);
+		} while (token[-1]);
+	}
+}
+
+void	print_cl_cc_include_paths (struct unit *unit, char **pptr) {
 	if (unit->manifest.cc_include_paths) {
 		const char	*token;
 
 		token = unit->manifest.cc_include_paths;
 		do {
-			ptr += sprintf (ptr, "/I\"%s\" ", token);
+			char	include_path_[256];
+
+			strcpy (include_path_, token);
+			if (include_path_[strlen (include_path_) - 1] == '\\') {
+				include_path_[strlen (include_path_) - 1] = 0;
+			}
+			*pptr += sprintf (*pptr, "/I\"%s\" ", include_path_);
 			token = next_const_token (token, 0);
 		} while (token[-1]);
 	}
+}
+
+void	print_cl_cc_flags (struct unit *unit, char **pptr) {
 	if (unit->manifest.cc_flags) {
 		const char	*token;
 
 		token = unit->manifest.cc_flags;
 		do {
-			ptr += sprintf (ptr, "%s ", token);
+			*pptr += sprintf (*pptr, "%s ", token);
 			token = next_const_token (token, 0);
 		} while (token[-1]);
+	}
+}
+
+void	print_cl_cc_linker_flags (struct unit *unit, char **pptr) {
+	if (unit->manifest.cc_linker_flags) {
+		const char	*token;
+
+		token = unit->manifest.cc_linker_flags;
+		do {
+			*pptr += sprintf (*pptr, "%s ", token);
+			token = next_const_token (token, 0);
+		} while (token[-1]);
+	}
+}
+
+void	print_cl_cc_libpaths (struct unit *unit, char **pptr) {
+	if (unit->manifest.cc_libpaths) {
+		const char	*token;
+
+		token = unit->manifest.cc_libpaths;
+		do {
+			*pptr += sprintf (*pptr, "/LIBPATH:\"%s\" ", token);
+			token = next_const_token (token, 0);
+		} while (token[-1]);
+	}
+}
+
+void	print_cl_cc_libs (struct unit *unit, char **pptr) {
+	if (unit->manifest.cc_libs) {
+		const char	*token;
+
+		token = unit->manifest.cc_libs;
+		do {
+			*pptr += sprintf (*pptr, "%s ", token);
+			token = next_const_token (token, 0);
+		} while (token[-1]);
+	}
+}
+
+int		compile_unit_c (struct unit *unit, const char *filename, const char *include_path) {
+	int		result;
+	char	*ptr;
+	char	command[32 * 1024];
+	char	include_path_[256];
+	struct unit	*lib;
+	uint		lib_index;
+
+	strcpy (include_path_, include_path);
+	if (include_path_[strlen (include_path_) - 1] == '\\') {
+		include_path_[strlen (include_path_) - 1] = 0;
+	}
+	command[0] = 0;
+	ptr = command;
+	ptr += sprintf (ptr, "cl.exe /nologo \"%s\" /I\"%s\" ", filename, include_path_);
+	print_cl_cc_sources (unit, &ptr, unit->entry_filepath);
+	lib_index = Get_Bucket_First_Index (g_libs);
+	while (lib_index) {
+		print_cl_cc_sources (Get_Bucket_Element (g_libs, lib_index), &ptr, Get_Bucket_Element (g_libs, lib_index)->entry_filepath);
+		lib_index = Get_Next_Bucket_Index (g_libs, lib_index);
+	}
+	print_cl_cc_include_paths (unit, &ptr);
+	lib_index = Get_Bucket_First_Index (g_libs);
+	while (lib_index) {
+		print_cl_cc_include_paths (Get_Bucket_Element (g_libs, lib_index), &ptr);
+		lib_index = Get_Next_Bucket_Index (g_libs, lib_index);
+	}
+	print_cl_cc_flags (unit, &ptr);
+	lib_index = Get_Bucket_First_Index (g_libs);
+	while (lib_index) {
+		print_cl_cc_flags (Get_Bucket_Element (g_libs, lib_index), &ptr);
+		lib_index = Get_Next_Bucket_Index (g_libs, lib_index);
 	}
 	{
 		char	output[256], *ptr2;
 
 		strcpy (output, filename);
 		ptr2 = strrchr (output, '\\');
-		if (ptr2) {
-			ptr2 += 1;
-		} else {
-			ptr2 = output;
-		}
-		if ((ptr2 = strchr (ptr2, '.'))) {
-			strcpy (ptr2, ".obj");
-		} else {
-			strcat (output, ".obj");
-		}
-		ptr += sprintf (ptr, "/Fo\"%s\" ", output);
+		Assert (ptr2);
+		ptr2 += 1;
+		*ptr2 = 0;
+		ptr += sprintf (ptr, "/Fo\"%s\\\" ", output);
 	}
 	ptr += sprintf (ptr, "/link ");
-	if (unit->manifest.cc_linker_flags) {
-		const char	*token;
-
-		token = unit->manifest.cc_linker_flags;
-		do {
-			ptr += sprintf (ptr, "%s ", token);
-			token = next_const_token (token, 0);
-		} while (token[-1]);
+	print_cl_cc_linker_flags (unit, &ptr);
+	lib_index = Get_Bucket_First_Index (g_libs);
+	while (lib_index) {
+		print_cl_cc_linker_flags (Get_Bucket_Element (g_libs, lib_index), &ptr);
+		lib_index = Get_Next_Bucket_Index (g_libs, lib_index);
 	}
-	if (unit->manifest.cc_libpaths) {
-		const char	*token;
-
-		token = unit->manifest.cc_libpaths;
-		do {
-			ptr += sprintf (ptr, "/LIBPATH:\"%s\" ", token);
-			token = next_const_token (token, 0);
-		} while (token[-1]);
+	print_cl_cc_libpaths (unit, &ptr);
+	lib_index = Get_Bucket_First_Index (g_libs);
+	while (lib_index) {
+		print_cl_cc_libpaths (Get_Bucket_Element (g_libs, lib_index), &ptr);
+		lib_index = Get_Next_Bucket_Index (g_libs, lib_index);
 	}
-	if (unit->manifest.cc_libs) {
-		const char	*token;
-
-		token = unit->manifest.cc_libs;
-		do {
-			ptr += sprintf (ptr, "%s ", token);
-			token = next_const_token (token, 0);
-		} while (token[-1]);
+	print_cl_cc_libs (unit, &ptr);
+	lib_index = Get_Bucket_First_Index (g_libs);
+	while (lib_index) {
+		print_cl_cc_libs (Get_Bucket_Element (g_libs, lib_index), &ptr);
+		lib_index = Get_Next_Bucket_Index (g_libs, lib_index);
 	}
 	{
 		char	output[256], *ptr2;
@@ -624,31 +715,48 @@ int		compile_unit_c (struct unit *unit, const char *filename) {
 		}
 		ptr += sprintf (ptr, "/OUT:\"%s\" ", output);
 	}
+	if (g_show_build_command) {
+		printf ("\nbuild command: %s\n", command);
+	}
 	result = 0 == system (command);
 	return (result);
 }
 
 void	init_unit (struct unit *unit) {
+	unit->buckets = &unit->active_buckets;
 	unit->scope = make_scope (unit, ScopeKind (unit), 0);
 }
 
-int		run_test (struct unit *unit, const char *exe_path) {
+void	clear_buckets (struct buckets *buckets) {
+	Clear_Bucket (buckets->decls);
+	Clear_Bucket (buckets->types);
+	Clear_Bucket (buckets->exprs);
+	Clear_Bucket (buckets->flows);
+	Clear_Bucket (buckets->scopes);
+	Clear_Bucket (buckets->typeinfos);
+	Clear_Bucket (buckets->typemembers);
+}
+
+void	free_buckets (struct buckets *buckets) {
+	Free_Bucket (buckets->decls);
+	Free_Bucket (buckets->types);
+	Free_Bucket (buckets->exprs);
+	Free_Bucket (buckets->flows);
+	Free_Bucket (buckets->scopes);
+	Free_Bucket (buckets->typeinfos);
+	Free_Bucket (buckets->typemembers);
+}
+
+int		is_active_buckets (struct unit *unit) {
+	return (unit->buckets == &unit->active_buckets);
+}
+
+int		run_test (struct unit *unit, const char *exe_path, const char *refpath) {
 	int		result;
 	char	*reffile;
-	char	refpath[256], *ptr;
 	usize	size;
 
-	strcpy (refpath, exe_path);
-	ptr = strrchr (refpath, '\\');
-	if (!ptr) {
-		ptr = refpath;
-	}
-	ptr = strchr (ptr, '.');
-	if (ptr) {
-		strcpy (ptr, ".refout");
-	} else {
-		strcat (refpath, ".refout");
-	}
+	Debug ("refpath: %s", refpath);
 	if (PathFileExistsA (refpath)) {
 		reffile = read_entire_file (refpath, &size);
 		if (reffile) {
@@ -704,12 +812,28 @@ int		run_test (struct unit *unit, const char *exe_path) {
 	return (result);
 }
 
+int		add_lib_to_unit (struct unit *unit, struct unit *lib) {
+	int		result;
+
+	if (Prepare_Array (unit->libptrs, 1)) {
+		*Push_Array (unit->libptrs) = lib;
+		result = 1;
+	} else {
+		Error ("cannot prepare libptrs array");
+		result = 0;
+	}
+	return (result);
+}
+
 int		build_unit (struct unit *unit, const char *entry_filename, const char *include_path, const char *working_path) {
 	int		result;
 	char	*content;
 	usize	size;
 	char	path[256];
 
+	if (Prepare_Array (g_unit_stack, 1)) {
+		*Push_Array (g_unit_stack) = unit;
+	}
 	unit->flags[Flag (entry)] = 1;
 	if (!unit->flags[Flag (lib)]) {
 		path[0] = 0;
@@ -745,13 +869,14 @@ int		build_unit (struct unit *unit, const char *entry_filename, const char *incl
 		}
 	} else if (g_head_lib_index) {
 		if (g_head_lib_index != Get_Bucket_Element_Index (g_libs, unit)) {
-			if (Prepare_Array (unit->libptrs, 1)) {
-				*Push_Array (unit->libptrs) = Get_Bucket_Element (g_libs, g_head_lib_index);
+			if (add_lib_to_unit (unit, Get_Bucket_Element (g_libs, g_head_lib_index))) {
 				result = 1;
 			} else {
-				Error ("cannot prepare libptrs array");
+				Error ("cannot add lib to unit");
 				result = 0;
 			}
+		} else {
+			result = 1;
 		}
 	} else {
 		Error ("_head lib not found");
@@ -764,7 +889,10 @@ int		build_unit (struct unit *unit, const char *entry_filename, const char *incl
 		Assert (0 == strrchr (entry_filename, '\\'));
 		content = read_entire_file (path, &size);
 		if (content) {
-			unit->filepath = strdup (path);
+			unit->filepath = g_tokenizer.current;
+			push_string_token (&g_tokenizer, 0, path, strlen (path), 0);
+			unit->filepath = get_next_from_tokenizer (&g_tokenizer, (char *) unit->filepath);
+			unit->entry_filepath = unit->filepath;
 			if (parse_source (unit, content, size, entry_filename)) {
 				free (content);
 				content = 0;
@@ -790,12 +918,27 @@ int		build_unit (struct unit *unit, const char *entry_filename, const char *incl
 									Assert (ptr);
 									ptr += 1;
 									strncpy (lib_working_path, path, ptr - path);
+									lib_working_path[ptr - path] = 0;
 									strcpy (lib_filename, ptr);
 									result = 1;
 								} else {
 									Error ("cannot get path to lib '%s'", lib);
 									result = 0;
 								}
+							}
+						} else if (isalpha (lib[0]) && lib[1] == ':') {
+							char	*ptr;
+
+							ptr = strrchr (lib, '\\');
+							if (ptr) {
+								ptr += 1;
+								strncpy (lib_working_path, lib, ptr - lib);
+								lib_working_path[ptr - lib] = 0;
+								strcpy (lib_filename, ptr);
+								result = 1;
+							} else {
+								Error ("invalid fullpath '%s'", lib);
+								result = 0;
 							}
 						} else {
 							char	*ptr;
@@ -805,6 +948,7 @@ int		build_unit (struct unit *unit, const char *entry_filename, const char *incl
 								Assert (ptr);
 								ptr += 1;
 								strncpy (lib_working_path, path, ptr - path);
+								lib_working_path[ptr - lib] = 0;
 								strcpy (lib_filename, ptr);
 								result = 1;
 							} else {
@@ -849,7 +993,7 @@ int		build_unit (struct unit *unit, const char *entry_filename, const char *incl
 									struct unit	*libptr;
 
 									libptr = Get_Bucket_Element (g_libs, index);
-									if (0 == strcmp (path, libptr->filepath)) {
+									if (0 == strcmp (path, libptr->entry_filepath)) {
 										if (are_option_values_the_same (libptr->manifest.options, man_options)) {
 											libunit = libptr;
 										}
@@ -876,15 +1020,13 @@ int		build_unit (struct unit *unit, const char *entry_filename, const char *incl
 										result = 0;
 									}
 								} else {
-									Debug ("found lib duplication %s", lib_filename);
 									result = 1;
 								}
 								if (result) {
-									if (Prepare_Array (unit->libptrs, 1)) {
-										*Push_Array (unit->libptrs) = libunit;
+									if (add_lib_to_unit (unit, libunit)) {
 										result = 1;
 									} else {
-										Error ("cannot prepare libptrs array");
+										Error ("cannot add lib to unit");
 										result = 0;
 									}
 								}
@@ -910,7 +1052,9 @@ int		build_unit (struct unit *unit, const char *entry_filename, const char *incl
 							if (make_path_from_relative (path, working_path, source)) {
 								content = read_entire_file (path, &size);
 								if (content) {
-									unit->filepath = strdup (path);
+									unit->filepath = g_tokenizer.current;
+									push_string_token (&g_tokenizer, 0, path, strlen (path), 0);
+									unit->filepath = get_next_from_tokenizer (&g_tokenizer, (char *) unit->filepath);
 									if (parse_source (unit, content, size, source)) {
 										result = 1;
 									} else {
@@ -939,21 +1083,35 @@ int		build_unit (struct unit *unit, const char *entry_filename, const char *incl
 								if (!unit->flags[Flag (lib)]) {
 									path[0] = 0;
 									strcat (path, working_path);
+									strcat (path, "build");
+									if (!PathFileExistsA (path)) {
+										CreateDirectoryA (path, 0);
+									}
+									strcat (path, "\\");
 									strcat (path, entry_filename);
 									strcat (path, ".c");
 									if (translate_unit_to_c (unit, path)) {
-										if (compile_unit_c (unit, path)) {
+										if (compile_unit_c (unit, path, include_path)) {
 											if (g_is_test) {
 												char	*ptr;
+												char	refpath[256];
 
 												path[0] = 0;
 												strcat (path, working_path);
+												strcat (path, "build\\");
 												strcat (path, entry_filename);
 												ptr = strrchr (path, '\\');
 												Assert (ptr);
 												ptr = strchr (ptr, '.');
 												strcpy (ptr, ".exe");
-												if (run_test (unit, path)) {
+												refpath[0] = 0;
+												strcat (refpath, working_path);
+												strcat (refpath, entry_filename);
+												ptr = strrchr (refpath, '\\');
+												Assert (ptr);
+												ptr = strchr (ptr, '.');
+												strcpy (ptr, ".refout");
+												if (run_test (unit, path, refpath)) {
 													result = 1;
 												} else {
 													result = 0;
@@ -972,12 +1130,15 @@ int		build_unit (struct unit *unit, const char *entry_filename, const char *incl
 									result = 1;
 								}
 							} else {
+								Error ("cannot size");
 								result = 0;
 							}
 						} else {
+							Error ("cannot link");
 							result = 0;
 						}
 					} else {
+						Error ("cannot initialize lookup tables");
 						result = 0;
 					}
 				}
@@ -988,10 +1149,11 @@ int		build_unit (struct unit *unit, const char *entry_filename, const char *incl
 				result = 0;
 			}
 		} else {
-			Error ("cannot open file of unit entry '%s'", entry_filename);
+			Error ("cannot open file of unit entry '%s' '%s'", entry_filename, path);
 			result = 0;
 		}
 	}
+	Pop_Array (g_unit_stack);
 	return (result);
 }
 

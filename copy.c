@@ -1,8 +1,8 @@
 
 
-uint	make_type_copy (struct unit *unit, struct unit *decl_unit, uint type_index);
+uint	make_type_copy (struct unit *unit, struct unit *decl_unit, uint type_index, uint scope_index);
 
-void	replace_type_with_copy (struct unit *unit, struct type *new_type, struct unit *decl_unit, uint type_index) {
+void	replace_type_with_copy (struct unit *unit, struct type *new_type, struct unit *decl_unit, uint type_index, uint scope_index) {
 	struct type	*type;
 
 	type = get_type (decl_unit, type_index);
@@ -11,15 +11,23 @@ void	replace_type_with_copy (struct unit *unit, struct type *new_type, struct un
 	if (type->kind == TypeKind (basic)) {
 		new_type->basic = type->basic;
 	} else if (type->kind == TypeKind (tag)) {
-		Assert (!type->tag.decl);
 		new_type->tag = type->tag;
+		if (type->tag.decl) {
+			if (is_lib_index (type->tag.decl)) {
+				new_type->tag.decl = type->tag.decl;
+			} else if (unit != decl_unit) {
+				new_type->tag.decl = make_lib_index (Get_Bucket_Element_Index (g_libs, decl_unit), unlib_index (type->tag.decl));
+			} else {
+				new_type->tag.decl = type->tag.decl;
+			}
+		}
 	} else if (type->kind == TypeKind (mod)) {
 		new_type->mod = type->mod;
-		new_type->mod.forward = make_type_copy (unit, decl_unit, type->mod.forward);
+		new_type->mod.forward = make_type_copy (unit, decl_unit, type->mod.forward, scope_index);
 		if (type->mod.kind == TypeMod (pointer)) {
 		} else if (type->mod.kind == TypeMod (array)) {
 			if (type->mod.expr) {
-				new_type->mod.expr = make_expr_copy (unit, decl_unit, type->mod.expr);
+				new_type->mod.expr = make_expr_copy (unit, decl_unit, type->mod.expr, scope_index);
 			} else {
 				new_type->mod.expr = 0;
 			}
@@ -35,21 +43,21 @@ void	replace_type_with_copy (struct unit *unit, struct type *new_type, struct un
 		}
 	} else if (type->kind == TypeKind (typeof)) {
 		new_type->typeof = type->typeof;
-		new_type->typeof.expr = make_expr_copy (unit, decl_unit, type->typeof.expr);
+		new_type->typeof.expr = make_expr_copy (unit, decl_unit, type->typeof.expr, scope_index);
 	} else {
 		Unreachable ();
 	}
 }
 
-uint	make_type_copy (struct unit *unit, struct unit *decl_unit, uint type_index) {
+uint	make_type_copy (struct unit *unit, struct unit *decl_unit, uint type_index, uint scope_index) {
 	uint	index;
 
-	if (Prepare_Bucket (unit->types, 1)) {
+	if (Prepare_Bucket (unit->buckets->types, 1)) {
 		struct type	*new_type;
 
-		new_type = Push_Bucket (unit->types);
-		replace_type_with_copy (unit, new_type, decl_unit, type_index);
-		index = Get_Bucket_Element_Index (unit->types, new_type);
+		new_type = Push_Bucket (unit->buckets->types);
+		replace_type_with_copy (unit, new_type, decl_unit, type_index, scope_index);
+		index = Get_Bucket_Element_Index (unit->buckets->types, new_type);
 	} else {
 		Error ("cannot prepare bucket for type");
 		index = 0;
@@ -57,17 +65,17 @@ uint	make_type_copy (struct unit *unit, struct unit *decl_unit, uint type_index)
 	return (index);
 }
 
-void	replace_expr_with_copy (struct unit *unit, struct expr *new_expr, struct unit *decl_unit, uint expr_index);
+void	replace_expr_with_copy (struct unit *unit, struct expr *new_expr, struct unit *decl_unit, uint expr_index, uint scope_index);
 
-uint	make_expr_copy (struct unit *unit, struct unit *decl_unit, uint expr_index) {
+uint	make_expr_copy (struct unit *unit, struct unit *decl_unit, uint expr_index, uint scope_index) {
 	uint	index;
 
-	if (Prepare_Bucket (unit->exprs, 1)) {
+	if (Prepare_Bucket (unit->buckets->exprs, 1)) {
 		struct expr	*new_expr;
 
-		new_expr = Push_Bucket (unit->exprs);
+		new_expr = Push_Bucket (unit->buckets->exprs);
 		Assert (new_expr);
-		replace_expr_with_copy (unit, new_expr, decl_unit, expr_index);
+		replace_expr_with_copy (unit, new_expr, decl_unit, expr_index, scope_index);
 		index = get_expr_index (unit, new_expr);
 	} else {
 		Error ("cannot prepare exprs bucket");
@@ -76,7 +84,9 @@ uint	make_expr_copy (struct unit *unit, struct unit *decl_unit, uint expr_index)
 	return (index);
 }
 
-void	replace_expr_with_copy (struct unit *unit, struct expr *new_expr, struct unit *decl_unit, uint expr_index) {
+uint	make_decl_copy (struct unit *unit, struct unit *decl_unit, uint decl_index, uint parent_scope);
+
+void	replace_expr_with_copy (struct unit *unit, struct expr *new_expr, struct unit *decl_unit, uint expr_index, uint scope_index) {
 	struct expr	*expr;
 
 	expr = get_expr (decl_unit, expr_index);
@@ -84,18 +94,21 @@ void	replace_expr_with_copy (struct unit *unit, struct expr *new_expr, struct un
 	if (expr->type == ExprType (op)) {
 		new_expr->op.type = expr->op.type;
 		if (expr->op.type == OpType (array_subscript) || expr->op.type == OpType (function_call)) {
-			new_expr->op.forward = make_expr_copy (unit, decl_unit, expr->op.forward);
-			new_expr->op.backward = make_expr_copy (unit, decl_unit, expr->op.backward);
+			new_expr->op.forward = make_expr_copy (unit, decl_unit, expr->op.forward, scope_index);
+			new_expr->op.backward = make_expr_copy (unit, decl_unit, expr->op.backward, scope_index);
 		} else if (expr->op.type == OpType (cast)) {
-			new_expr->op.forward = make_expr_copy (unit, decl_unit, expr->op.forward);
-			new_expr->op.backward = make_type_copy (unit, decl_unit, expr->op.backward);
+			new_expr->op.forward = make_expr_copy (unit, decl_unit, expr->op.forward, scope_index);
+			new_expr->op.backward = make_type_copy (unit, decl_unit, expr->op.backward, scope_index);
+		} else if (expr->op.type == OpType (typesizeof) || expr->op.type == OpType (typealignof)) {
+			new_expr->op.forward = 0;
+			new_expr->op.backward = make_type_copy (unit, decl_unit, expr->op.backward, scope_index);
 		} else {
 			if (is_expr_unary (expr)) {
-				new_expr->op.forward = make_expr_copy (unit, decl_unit, expr->op.forward);
+				new_expr->op.forward = make_expr_copy (unit, decl_unit, expr->op.forward, scope_index);
 				new_expr->op.backward = 0;
 			} else {
-				new_expr->op.backward = make_expr_copy (unit, decl_unit, expr->op.backward);
-				new_expr->op.forward = make_expr_copy (unit, decl_unit, expr->op.forward);
+				new_expr->op.backward = make_expr_copy (unit, decl_unit, expr->op.backward, scope_index);
+				new_expr->op.forward = make_expr_copy (unit, decl_unit, expr->op.forward, scope_index);
 			}
 		}
 	} else if (expr->type == ExprType (constant)) {
@@ -115,12 +128,12 @@ void	replace_expr_with_copy (struct unit *unit, struct expr *new_expr, struct un
 		}
 	} else if (expr->type == ExprType (funcparam)) {
 		if (expr->funcparam.expr) {
-			new_expr->funcparam.expr = make_expr_copy (unit, decl_unit, expr->funcparam.expr);
+			new_expr->funcparam.expr = make_expr_copy (unit, decl_unit, expr->funcparam.expr, scope_index);
 		} else {
 			new_expr->funcparam.expr = 0;
 		}
 		if (expr->funcparam.next) {
-			new_expr->funcparam.next = make_expr_copy (unit, decl_unit, expr->funcparam.next);
+			new_expr->funcparam.next = make_expr_copy (unit, decl_unit, expr->funcparam.next, scope_index);
 		} else {
 			new_expr->funcparam.next = 0;
 		}
@@ -136,6 +149,49 @@ void	replace_expr_with_copy (struct unit *unit, struct expr *new_expr, struct un
 		}
 	} else if (expr->type == ExprType (macroparam)) {
 		new_expr->macroparam = expr->macroparam;
+	} else if (expr->type == ExprType (enum)) {
+		if (expr->enumt.lib_index) {
+			new_expr->enumt.lib_index = expr->enumt.lib_index;
+		} else if (unit != decl_unit) {
+			new_expr->enumt.lib_index = Get_Bucket_Element_Index (g_libs, decl_unit);
+		} else {
+			new_expr->enumt.lib_index = 0;
+		}
+		new_expr->enumt.decl = expr->enumt.decl;
+		new_expr->enumt.enum_decl = expr->enumt.enum_decl;
+		if (is_lib_index (expr->enumt.accessor_decl)) {
+			new_expr->enumt.accessor_decl = expr->enumt.accessor_decl;
+		} else if (unit != decl_unit) {
+			new_expr->enumt.accessor_decl = make_lib_index (Get_Bucket_Element_Index (g_libs, decl_unit), unlib_index (expr->enumt.accessor_decl));
+		} else {
+			new_expr->enumt.accessor_decl = expr->enumt.accessor_decl;
+		}
+	} else if (expr->type == ExprType (table)) {
+		if (expr->enumt.lib_index) {
+			new_expr->enumt.lib_index = expr->enumt.lib_index;
+		} else if (unit != decl_unit) {
+			new_expr->enumt.lib_index = Get_Bucket_Element_Index (g_libs, decl_unit);
+		} else {
+			new_expr->enumt.lib_index = 0;
+		}
+		new_expr->enumt.decl = expr->enumt.decl;
+		new_expr->enumt.enum_decl = expr->enumt.enum_decl;
+		if (is_lib_index (expr->enumt.accessor_decl)) {
+			new_expr->enumt.accessor_decl = expr->enumt.accessor_decl;
+		} else if (unit != decl_unit) {
+			new_expr->enumt.accessor_decl = make_lib_index (Get_Bucket_Element_Index (g_libs, decl_unit), unlib_index (expr->enumt.accessor_decl));
+		} else {
+			new_expr->enumt.accessor_decl = expr->enumt.accessor_decl;
+		}
+	} else if (expr->type == ExprType (macrocall)) {
+		if (is_lib_index (expr->macrocall.decl)) {
+			new_expr->macrocall.decl = expr->macrocall.decl;
+		} else if (unit != decl_unit) {
+			new_expr->macrocall.decl = make_lib_index (Get_Bucket_Element_Index (g_libs, decl_unit), unlib_index (expr->macrocall.decl));
+		} else {
+			new_expr->macrocall.decl = expr->macrocall.decl;
+		}
+		new_expr->macrocall.instance = make_decl_copy (unit, decl_unit, expr->macrocall.instance, scope_index);
 	} else {
 		Unreachable ();
 	}
@@ -152,20 +208,25 @@ uint	make_flow_copy (struct unit *unit, struct unit *decl_unit, uint scope_index
 	new_flow = get_flow (unit, make_flow (unit, flow->type, flow->line));
 	Assert (new_flow);
 	if (flow->type == FlowType (if)) {
-		new_flow->fif.expr = make_expr_copy (unit, decl_unit, flow->fif.expr);
+		new_flow->fif.expr = make_expr_copy (unit, decl_unit, flow->fif.expr, scope_index);
 		new_flow->fif.flow_body = make_flow_copy (unit, decl_unit, scope_index, flow->fif.flow_body);
 		new_flow->fif.else_body = make_flow_copy (unit, decl_unit, scope_index, flow->fif.else_body);
+	} else if (flow->type == FlowType (static_if)) {
+		new_flow->static_if.expr = make_expr_copy (unit, decl_unit, flow->static_if.expr, scope_index);
+		new_flow->static_if.flow_body = make_flow_copy (unit, decl_unit, scope_index, flow->static_if.flow_body);
+		new_flow->static_if.else_body = make_flow_copy (unit, decl_unit, scope_index, flow->static_if.else_body);
 	} else if (flow->type == FlowType (block)) {
 		new_flow->block.scope = make_scope_copy (unit, decl_unit, flow->block.scope, scope_index, get_scope (unit, scope_index)->param_scope);
 	} else if (flow->type == FlowType (expr)) {
-		new_flow->expr.index = make_expr_copy (unit, decl_unit, flow->expr.index);
+		new_flow->expr.index = make_expr_copy (unit, decl_unit, flow->expr.index, scope_index);
+	} else if (flow->type == FlowType (assert) || flow->type == FlowType (static_assert)) {
+		new_flow->assert.expr = make_expr_copy (unit, decl_unit, flow->assert.expr, scope_index);
+		new_flow->assert.string = flow->assert.string;
 	} else {
 		Unreachable ();
 	}
 	return (get_flow_index (unit, new_flow));
 }
-
-uint	make_decl_copy (struct unit *unit, struct unit *decl_unit, uint decl_index);
 
 uint	make_scope_copy (struct unit *unit, struct unit *decl_unit, uint scope_index, uint parent_scope, uint param_scope) {
 	uint			new_scope_index;
@@ -183,7 +244,7 @@ uint	make_scope_copy (struct unit *unit, struct unit *decl_unit, uint scope_inde
 		while (decl_index) {
 			uint	new_decl_index;
 
-			new_decl_index = make_decl_copy (unit, decl_unit, decl_index);
+			new_decl_index = make_decl_copy (unit, decl_unit, decl_index, scope_index);
 			add_decl_to_scope (unit, new_scope_index, new_decl_index);
 			decl_index = get_decl (decl_unit, decl_index)->next;
 		}
@@ -204,7 +265,7 @@ uint	make_scope_copy (struct unit *unit, struct unit *decl_unit, uint scope_inde
 	return (new_scope_index);
 }
 
-uint	make_decl_copy (struct unit *unit, struct unit *decl_unit, uint decl_index) {
+uint	make_decl_copy (struct unit *unit, struct unit *decl_unit, uint decl_index, uint scope_index) {
 	uint		new_decl_index;
 	struct decl	*decl;
 	struct decl	*new_decl;
@@ -214,18 +275,28 @@ uint	make_decl_copy (struct unit *unit, struct unit *decl_unit, uint decl_index)
 	Assert (new_decl_index);
 	new_decl = get_decl (unit, new_decl_index);
 	if (decl->type) {
-		new_decl->type = make_type_copy (unit, decl_unit, decl->type);
+		new_decl->type = make_type_copy (unit, decl_unit, decl->type, scope_index);
 	}
 	if (decl->kind == DeclKind (const)) {
 		Assert (decl->dconst.expr);
-		new_decl->dconst.expr = make_expr_copy (unit, decl_unit, decl->dconst.expr);
+		new_decl->dconst.expr = make_expr_copy (unit, decl_unit, decl->dconst.expr, scope_index);
 	} else if (decl->kind == DeclKind (param)) {
 		Assert (!decl->param.expr);
 		new_decl->param.expr = 0;
 	} else if (decl->kind == DeclKind (define)) {
 		if (decl->define.kind == DefineKind (macro)) {
-			new_decl->define.macro.param_scope = make_scope_copy (unit, decl_unit, decl->define.macro.param_scope, 0, 0);
-			new_decl->define.macro.scope = make_scope_copy (unit, decl_unit, decl->define.macro.scope, 0, new_decl->define.macro.param_scope);
+			if (decl->define.macro.param_scope) {
+				new_decl->define.macro.param_scope = make_scope_copy (unit, decl_unit, decl->define.macro.param_scope, 0, 0);
+				new_decl->define.macro.scope = make_scope_copy (unit, decl_unit, decl->define.macro.scope, scope_index, new_decl->define.macro.param_scope);
+			} else {
+				Assert (decl->define.macro.scope);
+				Assert (decl->type);
+				new_decl->define.macro.scope = make_scope_copy (unit, decl_unit, decl->define.macro.scope, scope_index, new_decl->define.macro.param_scope);
+				new_decl->type = make_type_copy (unit, decl_unit, decl->type, scope_index);
+				if (decl->define.macro.expr_params) {
+					new_decl->define.macro.expr_params = make_expr_copy (unit, decl_unit, decl->define.macro.expr_params, scope_index);
+				}
+			}
 		} else {
 			Unreachable ();
 		}

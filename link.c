@@ -4,13 +4,13 @@
 */
 
 
-uint64	find_ordinary_decl (struct unit *unit, uint scope_index, const char *name) {
+uint64	find_ordinary_decl_local (struct unit *unit, uint scope_index, const char *name) {
 	uint64			decl_index;
 	struct scope	*scope;
 
 	scope = get_scope (unit, scope_index);
 	if (scope->kind == ScopeKind (unit)) {
-		decl_index = find_decl_in_table (unit, name, TagType (invalid), 0);
+		decl_index = 0;
 	} else {
 		int				stop;
 
@@ -33,11 +33,28 @@ uint64	find_ordinary_decl (struct unit *unit, uint scope_index, const char *name
 			}
 		}
 		if (!decl_index && scope->param_scope) {
-			decl_index = find_ordinary_decl (unit, scope->param_scope, name);
+			decl_index = find_ordinary_decl_local (unit, scope->param_scope, name);
 		}
 		if (!decl_index && scope->parent_scope) {
-			decl_index = find_ordinary_decl (unit, scope->parent_scope, name);
+			decl_index = find_ordinary_decl_local (unit, scope->parent_scope, name);
 		}
+	}
+	return (decl_index);
+}
+
+uint64	find_ordinary_decl_global (struct unit *unit, const char *name) {
+	uint64	decl_index;
+
+	decl_index = find_decl_in_table (unit, name, TagType (invalid), 0);
+	return (decl_index);
+}
+
+uint64	find_ordinary_decl (struct unit *unit, uint scope_index, const char *name) {
+	uint64	decl_index;
+
+	decl_index = find_ordinary_decl_local (unit, scope_index, name);
+	if (!decl_index) {
+		decl_index = find_ordinary_decl_global (unit, name);
 	}
 	return (decl_index);
 }
@@ -124,14 +141,21 @@ uint	find_enum_by_name (struct unit *unit, uint scope_index, const char *name) {
 	decl_index = scope->decl_begin;
 	while (!stop && decl_index) {
 		struct decl	*decl;
+		const char	*token;
 
 		decl = get_decl (unit, decl_index);
-		if (0 == strcmp (name, decl->name)) {
-			Assert (decl->kind == DeclKind (enum));
-			stop = 1;
-		} else {
+		token = decl->name;
+		do {
+			if (0 == strcmp (name, token)) {
+				Assert (decl->kind == DeclKind (enum));
+				stop = 1;
+			} else {
+				token = next_const_token (token, 0);
+				stop = 0;
+			}
+		} while (!stop && token[-1] == Token (identifier));
+		if (!stop) {
 			decl_index = decl->next;
-			stop = 0;
 		}
 	}
 	return (decl_index);
@@ -228,6 +252,8 @@ int		is_same_type (struct typestack *leftstack, struct typestack *rightstack, in
 			push_typestack (rightstack, &righttype);
 		} else if (left->kind == TypeKind (internal)) {
 			result = left->internal.decl == right->internal.decl;
+		} else if (left->kind == TypeKind (opaque)) {
+			result = left->opaque.decl == right->opaque.decl;
 		} else {
 			Unreachable ();
 		}
@@ -382,7 +408,6 @@ int		link_funcparams (struct unit *unit, uint scope_index, uint64 param_scope_in
 				if (expr_index && (decl->type || 0 == strcmp (decl->name, "..."))) {
 					struct typestack	ctypestack, *typestack = &ctypestack;
 
-					push_expr_path (unit, expr_index);
 					expr = get_expr (unit, expr_index);
 					if (expr->type == ExprType (macroparam)) {
 						uint	copy_expr;
@@ -392,24 +417,33 @@ int		link_funcparams (struct unit *unit, uint scope_index, uint64 param_scope_in
 						decl = get_decl (unit, expr->macroparam.decl);
 						Assert (decl->kind == DeclKind (param));
 						Assert (decl->param.expr);
-						copy_expr = make_expr_copy (unit, unit, decl->param.expr);
+						copy_expr = make_expr_copy (unit, unit, decl->param.expr, scope_index);
 						Assert (copy_expr);
 						*expr = *get_expr (unit, copy_expr);
 					}
 					Assert (expr->type == ExprType (funcparam));
 					Assert (expr->funcparam.expr);
-					init_typestack (typestack);
+					push_expr_path (unit, expr->funcparam.expr);
+					init_typestack (typestack, 0);
 					if (link_expr (unit, scope_index, expr->funcparam.expr, 0, typestack)) {
 						if (decl->type) {
 							struct typestack	leftstack;
 
-							init_typestack (&leftstack);
+							init_typestack (&leftstack, 0);
 							push_typestack_recursive (unit, decl_unit, &leftstack, decl->type);
-							if (is_implicit_castable (unit, &leftstack, typestack, 0)) {
+							if (get_typestack_head (&leftstack)->kind == TypeKind (mod) && get_typestack_head (&leftstack)->mod.kind == TypeMod (array)) {
+								get_typestack_head (&leftstack)->mod.kind = TypeMod (pointer);
+							}
+							if (get_typestack_head (typestack)->kind == TypeKind (basic)) {
+								get_typestack_head (typestack)->basic.type = get_promoted_basictype (get_typestack_head (typestack)->basic.type);
+							}
+							if (is_typestacks_compatible (&leftstack, typestack)) {
 								expr_index = expr->funcparam.next;
 								result = 1;
 							} else {
 								Link_Error (unit, "parameter type mismatch");
+								print_left_right_typestacks (unit, &leftstack, typestack);
+								Debug ("is sizeof context: %d", typestack->is_sizeof_context);
 								result = 0;
 							}
 						} else {
@@ -484,7 +518,7 @@ int		link_member_access (struct unit *unit, uint64 decl_index, uint expr_index, 
 						expr->iden.decl = member_decl;
 					}
 					if (get_typestack_head (typestack)->kind == TypeKind (tag) && get_typestack_head (typestack)->tag.type == TagType (enum)) {
-						init_typestack (typestack);
+						init_typestack (typestack, typestack->is_sizeof_context);
 						push_basictype_to_typestack (typestack, BasicType (int), 0);
 					}
 					typestack->value = ValueCategory (lvalue);
@@ -538,8 +572,10 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 					struct type	*head;
 					struct decl	*decl;
 					struct unit	*decl_unit;
+					uint64		accessor_decl;
 
 					head = get_typestack_head (typestack);
+					accessor_decl = head->internal.decl;
 					if (is_lib_index (head->internal.decl)) {
 						decl_unit = get_lib (get_lib_index (head->internal.decl));
 					} else {
@@ -576,7 +612,8 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 										}
 										expr->enumt.decl = decl_index;
 										expr->enumt.enum_decl = get_decl_index (decl_unit, decl);
-										init_typestack (typestack);
+										expr->enumt.accessor_decl = accessor_decl;
+										init_typestack (typestack, typestack->is_sizeof_context);
 										/* todo: get basictype from enum constant */
 										push_basictype_to_typestack (typestack, BasicType (int), 0);
 										typestack->value = ValueCategory (rvalue);
@@ -600,11 +637,15 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 					} else if (decl->define.kind == DefineKind (macro)) {
 						uint	macro_instance;
 						uint64	decl_index;
+						uint	old_link_foreground_unit;
 
 						decl_index = head->internal.decl;
-						init_typestack (typestack);
-						macro_instance = make_decl_copy (unit, decl_unit, unlib_index (decl_index));
+						init_typestack (typestack, typestack->is_sizeof_context);
+						macro_instance = make_decl_copy (unit, decl_unit, unlib_index (decl_index), scope_index);
+						old_link_foreground_unit = unit->link_foreground_unit;
+						unit->link_foreground_unit = get_lib_index (head->internal.decl);
 						if (link_macro_eval (unit, scope_index, macro_instance, expr->op.backward, typestack)) {
+							unit->link_foreground_unit = old_link_foreground_unit;
 							memset (expr, 0, sizeof *expr);
 							expr->type = ExprType (macrocall);
 							expr->macrocall.decl = decl_index;
@@ -614,28 +655,49 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 							result = 0;
 						}
 					} else if (decl->define.kind == DefineKind (builtin)) {
-						struct expr	*right_expr;
+						struct expr	*right_exprs[4] = {0};
 
 						if (expr->op.backward) {
-							right_expr = get_expr (unit, expr->op.backward);
-							Assert (right_expr->type == ExprType (funcparam));
-							if (right_expr->funcparam.expr) {
-								if (!right_expr->funcparam.next) {
-									right_expr = get_expr (unit, right_expr->funcparam.expr);
-									result = 1;
+							int		num_of_params;
+							struct expr	*current;
+							int		index;
+
+							num_of_params = g_builtin_params_num[decl->define.builtin.type];
+							current = get_expr (unit, expr->op.backward);
+							Assert (num_of_params > 0);
+							index = 0;
+							do {
+								Assert (current->type == ExprType (funcparam));
+								if (current->funcparam.expr) {
+									right_exprs[index] = get_expr (unit, current->funcparam.expr);
+									index += 1;
+									if (index < num_of_params) {
+										if (current->funcparam.next) {
+											current = get_expr (unit, current->funcparam.next);
+											result = 1;
+										} else {
+											Link_Error (unit, "the %s builtin function must have %d parameters", g_builtin[decl->define.builtin.type], num_of_params);
+											result = 0;
+										}
+									} else if (current->funcparam.next) {
+										Link_Error (unit, "calling %s builtin function with more than %d parameter%s", g_builtin[decl->define.builtin.type], num_of_params, num_of_params == 1 ? "" : "s");
+										result = 0;
+									} else {
+										result = 1;
+									}
 								} else {
-									Link_Error (unit, "calling builtin function with more than one parameter");
+									Link_Error (unit, "calling %s builtin function with empty parameter", g_builtin[decl->define.builtin.type]);
 									result = 0;
 								}
-							} else {
-								Link_Error (unit, "calling builtin function without parameters");
-								result = 0;
-							}
+							} while (result && index < num_of_params);
 						} else {
-							Link_Error (unit, "calling builtin function without parameters");
+							Link_Error (unit, "calling %s builtin function without parameters", g_builtin[decl->define.builtin.type]);
 							result = 0;
 						}
 						if (result) {
+							struct expr	*right_expr;
+
+							right_expr = right_exprs[0];
 							if (decl->define.builtin.type == Builtin (flag)) {
 								if (right_expr->type == ExprType (identifier)) {
 									int		flag_index;
@@ -648,7 +710,7 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 										expr->type = ExprType (constant);
 										expr->constant.type = BasicType (int);
 										expr->constant.value = unit->flags[flag_index];
-										init_typestack (typestack);
+										init_typestack (typestack, typestack->is_sizeof_context);
 										push_basictype_to_typestack (typestack, expr->constant.type, 0);
 										result = 1;
 									} else {
@@ -671,7 +733,7 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 										expr->type = ExprType (constant);
 										expr->constant.type = BasicType (int);
 										expr->constant.value = platform_index == g_platform;
-										init_typestack (typestack);
+										init_typestack (typestack, typestack->is_sizeof_context);
 										push_basictype_to_typestack (typestack, expr->constant.type, 0);
 										result = 1;
 									} else {
@@ -694,10 +756,11 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 											if (parse_constant_value (unit, value, &exprvalue)) {
 												expr->type = ExprType (constant);
 												expr->constant = exprvalue;
-												init_typestack (typestack);
+												init_typestack (typestack, typestack->is_sizeof_context);
 												push_basictype_to_typestack (typestack, expr->constant.type, 0);
 												result = 1;
 											} else {
+												Link_Error (unit, "cannot parse constant value");
 												result = 0;
 											}
 										} else {
@@ -710,6 +773,133 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 									}
 								} else {
 									Link_Error (unit, "parameter of %s must be an identifier", g_builtin[decl->define.builtin.type]);
+									result = 0;
+								}
+							} else if (decl->define.builtin.type == Builtin (value_property)) {
+								if (right_expr->type == ExprType (identifier)) {
+									struct typestack	rightstack = {0};
+
+									init_typestack (&rightstack, 0);
+									rightstack.is_sizeof_context = 1;
+									if (link_expr (unit, scope_index, get_expr_index (unit, right_exprs[1]), 0, &rightstack)) {
+										struct type	*type;
+										int			value;
+
+										type = get_typestack_head (&rightstack);
+										if (0 == strcmp (right_expr->iden.name, "category")) {
+											value = rightstack.value;
+											result = 1;
+										} else if (0 == strcmp (right_expr->iden.name, "__declkind")) {
+											struct decl	*decl;
+
+											/* todo: get decl from typestack */
+											decl = 0;
+											if (decl->kind == DeclKind (var)) {
+												value = Internal_DeclKind (var);
+											} else if (decl->kind == DeclKind (const)) {
+												value = Internal_DeclKind (const);
+											} else if (decl->kind == DeclKind (alias)) {
+												value = Internal_DeclKind (alias);
+											} else if (decl->kind == DeclKind (tag)) {
+												if (decl->tag.type == TagType (enum)) {
+													value = Internal_DeclKind (enum_tag);
+												} else if (decl->tag.type == TagType (struct)) {
+													value = Internal_DeclKind (struct_tag);
+												} else if (decl->tag.type == TagType (union)) {
+													value = Internal_DeclKind (union_tag);
+												} else {
+													Unreachable ();
+												}
+											} else if (decl->kind == DeclKind (func)) {
+												value = Internal_DeclKind (func);
+											} else if (decl->kind == DeclKind (param)) {
+												value = Internal_DeclKind (param);
+											} else if (decl->kind == DeclKind (block)) {
+												value = Internal_DeclKind (block);
+											} else if (decl->kind == DeclKind (enum)) {
+												value = Internal_DeclKind (enum);
+											} else if (decl->kind == DeclKind (define)) {
+												if (decl->define.kind == DefineKind (macro)) {
+													value = Internal_DeclKind (macro);
+												} else if (decl->define.kind == DefineKind (accessor)) {
+													value = Internal_DeclKind (accessor);
+												} else if (decl->define.kind == DefineKind (external)) {
+													value = Internal_DeclKind (external);
+												} else if (decl->define.kind == DefineKind (type)) {
+													value = Internal_DeclKind (type);
+												} else if (decl->define.kind == DefineKind (builtin)) {
+													value = Internal_DeclKind (builtin);
+												} else {
+													value = Internal_DeclKind (unknown);
+												}
+											} else {
+												Unreachable ();
+											}
+											result = 1;
+										} else if (0 == strcmp (right_expr->iden.name, "typekind")) {
+											if (type->kind == TypeKind (basic)) {
+												value = Internal_TypeKind (basic);
+											} else if (type->kind == TypeKind (tag)) {
+												if (type->tag.type == TagType (struct)) {
+													value = Internal_TypeKind (struct);
+												} else if (type->tag.type == TagType (enum)) {
+													value = Internal_TypeKind (enum);
+												} else if (type->tag.type == TagType (union)) {
+													value = Internal_TypeKind (union);
+												} else {
+													Unreachable ();
+												}
+											} else if (type->kind == TypeKind (mod)) {
+												if (type->mod.kind == TypeMod (pointer)) {
+													value = Internal_TypeKind (pointer);
+												} else if (type->mod.kind == TypeMod (array)) {
+													value = Internal_TypeKind (array);
+												} else if (type->mod.kind == TypeMod (function)) {
+													value = Internal_TypeKind (function);
+												} else {
+													Unreachable ();
+												}
+											} else {
+												value = Internal_TypeKind (unknown);
+											}
+											result = 1;
+										} else {
+											Link_Error (unit, "unknown value property %s in first parameter of %s builtin function", right_expr->iden.name, g_builtin[decl->define.builtin.type]);
+											result = 0;
+										}
+										if (result) {
+											expr->type = ExprType (constant);
+											expr->constant.type = BasicType (int);
+											expr->constant.value = value;
+											init_typestack (typestack, typestack->is_sizeof_context);
+											push_basictype_to_typestack (typestack, expr->constant.type, 0);
+										}
+									} else {
+										result = 0;
+									}
+								} else {
+									Link_Error (unit, "first parameter of %s must be an identifier", g_builtin[decl->define.builtin.type]);
+									result = 0;
+								}
+							} else if (decl->define.builtin.type == Builtin (debug_print_expr_type)) {
+								int		old_sizeof_context;
+
+								old_sizeof_context = typestack->is_sizeof_context;
+								typestack->is_sizeof_context = 1;
+								if (link_expr (unit, scope_index, get_expr_index (unit, right_expr), 0, typestack)) {
+									typestack->is_sizeof_context = old_sizeof_context;
+									fprintf (stderr, "__Debug_Print_Expr_Type (");
+									print_expr (unit, get_expr_index (unit, right_expr), stderr);
+									fprintf (stderr, ") -> ");
+									print_typestack (unit, typestack, stderr);
+									fprintf (stderr, "\n");
+									expr->type = ExprType (constant);
+									expr->constant.type = BasicType (int);
+									expr->constant.value = 0;
+									init_typestack (typestack, typestack->is_sizeof_context);
+									push_basictype_to_typestack (typestack, expr->constant.type, 0);
+									result = 1;
+								} else {
 									result = 0;
 								}
 							} else {
@@ -752,17 +942,17 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 			if (link_expr (unit, scope_index, expr->op.forward, is_selfref_check, typestack)) {
 				struct typestack	rightstack;
 
-				init_typestack (&rightstack);
+				init_typestack (&rightstack, 0);
 				if (link_expr (unit, scope_index, expr->op.backward, is_selfref_check, &rightstack)) {
 					if (is_type_integral (get_typestack_head (&rightstack))) {
-						if (is_pointer_type (get_typestack_head (typestack))) {
+						if (is_pointer_type (get_typestack_head (typestack), typestack->is_sizeof_context)) {
 							pop_typestack (typestack);
 							result = 1;
 						} else {
 							Link_Error (unit, "one of the array subscript operands must be pointer");
 							result = 0;
 						}
-					} else if (is_pointer_type (get_typestack_head (typestack))) {
+					} else if (is_pointer_type (get_typestack_head (typestack), typestack->is_sizeof_context)) {
 						if (is_type_integral (get_typestack_head (typestack))) {
 							pop_typestack (&rightstack);
 							*typestack = rightstack;
@@ -789,7 +979,7 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 		} else if (expr->op.type == OpType (cast)) {
 			if (link_expr (unit, scope_index, expr->op.forward, is_selfref_check, typestack)) {
 				if (link_type (unit, scope_index, expr->op.backward, 1)) {
-					init_typestack (typestack);
+					init_typestack (typestack, typestack->is_sizeof_context);
 					if (push_typestack_recursive (unit, unit, typestack, expr->op.backward)) {
 						typestack->value = ValueCategory (rvalue);
 						result = 1;
@@ -808,8 +998,10 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 					struct type	*head;
 					struct decl	*decl;
 					struct unit	*decl_unit;
+					uint64		accessor_decl;
 
 					head = get_typestack_head (typestack);
+					accessor_decl = head->internal.decl;
 					if (is_lib_index (head->internal.decl)) {
 						decl_unit = Get_Bucket_Element (g_libs, get_lib_index (head->internal.decl));
 					} else {
@@ -831,6 +1023,7 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 						if (0 == strcmp (right_expr->iden.name, "name")) {
 							pop_typestack (typestack);
 							push_const_char_pointer_to_typestack (typestack);
+							push_pointer_type_to_typestack (typestack, 1);
 							typestack->value = ValueCategory (rvalue);
 							memset (expr, 0, sizeof *expr);
 							expr->type = ExprType (table);
@@ -841,6 +1034,7 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 							}
 							expr->table.decl = 0;
 							expr->table.tag_decl = get_decl_index (decl_unit, decl);
+							expr->table.accessor_decl = accessor_decl;
 							result = 1;
 						} else if (decl->tag.param_scope) {
 							uint64	decl_index;
@@ -861,6 +1055,7 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 								}
 								expr->table.decl = decl_index;
 								expr->table.tag_decl = get_decl_index (decl_unit, decl);
+								expr->table.accessor_decl = accessor_decl;
 								result = 1;
 							} else {
 								Link_Error (unit, "undefined enum table parameter '%s' in enum %s", right_expr->iden.name, decl->name);
@@ -897,7 +1092,7 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 								struct typestack	ctypestack, *rightstack = &ctypestack;
 								struct type			*type;
 
-								init_typestack (rightstack);
+								init_typestack (rightstack, 0);
 								Assert (head->tag.decl);
 								result = link_member_access (unit, head->tag.decl, expr->op.forward, rightstack);
 								*typestack = *rightstack;
@@ -918,9 +1113,17 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 				result = 0;
 			}
 		} else if (expr->op.type == OpType (address_of)) {
+			int		old_sizeof_context;
+
+			old_sizeof_context = typestack->is_sizeof_context;
+			typestack->is_sizeof_context = 1;
 			is_selfref_check = 0;
 			if (link_expr (unit, scope_index, expr->op.forward, is_selfref_check, typestack)) {
-				if (typestack->value == ValueCategory (lvalue)) {
+				typestack->is_sizeof_context = old_sizeof_context;
+				if (get_typestack_head (typestack)->kind == TypeKind (mod) && get_typestack_head (typestack)->mod.kind == TypeMod (array)) {
+					push_pointer_type_to_typestack (typestack, 0);
+					typestack->value = ValueCategory (rvalue);
+				} else if (typestack->value == ValueCategory (lvalue)) {
 					push_pointer_type_to_typestack (typestack, 0);
 					typestack->value = ValueCategory (rvalue);
 					result = 1;
@@ -933,8 +1136,8 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 				result = 0;
 			}
 		} else if (expr->op.type == OpType (typesizeof) || expr->op.type == OpType (typealignof)) {
-			if (link_type (unit, scope_index, expr->op.forward, 1)) {
-				init_typestack (typestack);
+			if (link_type (unit, scope_index, expr->op.backward, 1)) {
+				init_typestack (typestack, typestack->is_sizeof_context);
 				push_basictype_to_typestack (typestack, BasicType (usize), 0);
 				typestack->value = ValueCategory (rvalue);
 				result = 1;
@@ -948,7 +1151,7 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 			typestack->is_sizeof_context = 1;
 			if (link_expr (unit, scope_index, expr->op.forward, is_selfref_check, typestack)) {
 				typestack->is_sizeof_context = old_sizeof_context;
-				init_typestack (typestack);
+				init_typestack (typestack, typestack->is_sizeof_context);
 				push_basictype_to_typestack (typestack, BasicType (usize), 0);
 				typestack->value = ValueCategory (rvalue);
 				result = 1;
@@ -996,7 +1199,7 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 				if (head->kind == TypeKind (basic)) {
 					if (head->basic.type != BasicType (void)) {
 						if (is_basictype_integral (head->basic.type)) {
-							init_typestack (typestack);
+							init_typestack (typestack, typestack->is_sizeof_context);
 							push_basictype_to_typestack (typestack, BasicType (int), 0);
 							typestack->value = ValueCategory (rvalue);
 							result = 1;
@@ -1010,8 +1213,8 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 						print_type_typestack (unit, typestack);
 						result = 0;
 					}
-				} else if (is_pointer_type (head)) {
-					init_typestack (typestack);
+				} else if (is_pointer_type (head, typestack->is_sizeof_context)) {
+					init_typestack (typestack, typestack->is_sizeof_context);
 					push_basictype_to_typestack (typestack, BasicType (int), 0);
 					typestack->value = ValueCategory (rvalue);
 					result = 1;
@@ -1025,7 +1228,7 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 			}
 		} else if (expr->op.type == OpType (indirect)) {
 			if (link_expr (unit, scope_index, expr->op.forward, is_selfref_check, typestack)) {
-				if (is_pointer_type (get_typestack_head (typestack))) {
+				if (is_pointer_type (get_typestack_head (typestack), typestack->is_sizeof_context)) {
 					pop_typestack (typestack);
 					typestack->value = ValueCategory (lvalue);
 					result = 1;
@@ -1041,7 +1244,7 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 			if (link_expr (unit, scope_index, expr->op.backward, is_selfref_check, typestack)) {
 				struct typestack	rightstack = {0};
 
-				init_typestack (&rightstack);
+				init_typestack (&rightstack, 0);
 				if (link_expr (unit, scope_index, expr->op.forward, is_selfref_check, &rightstack)) {
 					struct type	*left;
 					struct type	*right;
@@ -1063,7 +1266,7 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 							}
 							if (result) {
 								if (is_comparison_optype (expr->op.type)) {
-									init_typestack (typestack);
+									init_typestack (typestack, typestack->is_sizeof_context);
 									push_basictype_to_typestack (typestack, BasicType (int), 0);
 								} else {
 									if (!is_assignment_optype (expr->op.type)) {
@@ -1077,16 +1280,16 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 							print_left_right_typestacks (unit, typestack, &rightstack);
 							result = 0;
 						}
-					} else if (is_pointer_type (left) || is_pointer_type (right)) {
-						if (is_pointer_type (left) && is_pointer_type (right)) {
+					} else if (is_pointer_type (left, typestack->is_sizeof_context) || is_pointer_type (right, rightstack.is_sizeof_context)) {
+						if (is_pointer_type (left, typestack->is_sizeof_context) && is_pointer_type (right, rightstack.is_sizeof_context)) {
 							if (!is_assignment_optype (expr->op.type)) {
 								if (is_comparison_optype (expr->op.type)) {
-									init_typestack (typestack);
+									init_typestack (typestack, typestack->is_sizeof_context);
 									push_basictype_to_typestack (typestack, BasicType (int), 0);
 									typestack->value = ValueCategory (rvalue);
 									result = 1;
 								} else if (expr->op.type == OpType (subtract)) {
-									init_typestack (typestack);
+									init_typestack (typestack, typestack->is_sizeof_context);
 									push_basictype_to_typestack (typestack, BasicType (size), 0);
 									typestack->value = ValueCategory (rvalue);
 									result = 1;
@@ -1103,7 +1306,7 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 						} else {
 							struct type	*ptr, *integ;
 
-							if (is_pointer_type (left)) {
+							if (is_pointer_type (left, typestack->is_sizeof_context)) {
 								ptr = left;
 								integ = right;
 								result = 1;
@@ -1129,7 +1332,7 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 										if (right_expr) {
 											Assert (is_basictype_integral (right_expr->constant.type));
 											if (right_expr->constant.uvalue == 0) {
-												init_typestack (typestack);
+												init_typestack (typestack, typestack->is_sizeof_context);
 												push_basictype_to_typestack (typestack, BasicType (int), 0);
 												typestack->value = ValueCategory (rvalue);
 												result = 1;
@@ -1172,7 +1375,7 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 			if (link_expr (unit, scope_index, expr->op.backward, is_selfref_check, typestack)) {
 				struct typestack	rightstack;
 
-				init_typestack (&rightstack);
+				init_typestack (&rightstack, 0);
 				if (link_expr (unit, scope_index, expr->op.forward, is_selfref_check, &rightstack)) {
 					if (typestack->value == ValueCategory (lvalue)) {
 						struct type	*left, *right;
@@ -1188,7 +1391,7 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 								print_left_right_typestacks (unit, typestack, &rightstack);
 								result = 0;
 							}
-						} else if (is_pointer_type (left) && is_pointer_type (right)) {
+						} else if (is_pointer_type (left, typestack->is_sizeof_context) && is_pointer_type (right, rightstack.is_sizeof_context)) {
 							if (is_same_type (typestack, &rightstack, 1)) {
 								typestack->value = ValueCategory (rvalue);
 								result = 1;
@@ -1206,7 +1409,7 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 								print_left_right_typestacks (unit, typestack, &rightstack);
 								result = 0;
 							}
-						} else if (is_pointer_type (left) && right->kind == TypeKind (basic)) {
+						} else if (is_pointer_type (left, typestack->is_sizeof_context) && right->kind == TypeKind (basic)) {
 							struct expr	*right_expr;
 
 							right_expr = get_expr (unit, expr->op.forward);
@@ -1253,17 +1456,18 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 			if (link_expr (unit, scope_index, expr->op.backward, is_selfref_check, typestack)) {
 				struct typestack	rightstack = {0};
 
-				init_typestack (&rightstack);
+				init_typestack (&rightstack, 0);
 				if (link_expr (unit, scope_index, expr->op.forward, is_selfref_check, &rightstack)) {
 					struct type	*left, *right;
 
 					left = get_typestack_head (typestack);
 					right = get_typestack_head (&rightstack);
-					if (is_pointer_type (left) || (left->kind == TypeKind (basic) && is_basictype_integral (left->basic.type))) {
-						if (is_pointer_type (right) || (right->kind == TypeKind (basic) && is_basictype_integral (right->basic.type))) {
-							init_typestack (typestack);
+					if (is_pointer_type (left, typestack->is_sizeof_context) || (left->kind == TypeKind (basic) && is_basictype_integral (left->basic.type))) {
+						if (is_pointer_type (right, rightstack.is_sizeof_context) || (right->kind == TypeKind (basic) && is_basictype_integral (right->basic.type))) {
+							init_typestack (typestack, typestack->is_sizeof_context);
 							push_basictype_to_typestack (typestack, BasicType (int), 0);
 							typestack->value = ValueCategory (rvalue);
+							result = 1;
 						} else {
 							Link_Error (unit, "right-hand side operands must have a pointer or integral type");
 							print_left_right_typestacks (unit, typestack, &rightstack);
@@ -1284,7 +1488,7 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 			if (link_expr (unit, scope_index, expr->op.backward, is_selfref_check, typestack)) {
 				struct typestack	rightstack = {0};
 
-				init_typestack (&rightstack);
+				init_typestack (&rightstack, 0);
 				if (link_expr (unit, scope_index, expr->op.forward, is_selfref_check, &rightstack)) {
 					struct type	*left, *right;
 
@@ -1311,7 +1515,6 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 				result = 0;
 			}
 		} else {
-			Debug ("op %s", g_opname[expr->op.type]);
 			Unreachable ();
 		}
 	} else if (expr->type == ExprType (funcparam)) {
@@ -1330,15 +1533,21 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 #endif
 		Unreachable ();
 	} else if (expr->type == ExprType (constant)) {
-		init_typestack (typestack);
+		init_typestack (typestack, typestack->is_sizeof_context);
 		push_basictype_to_typestack (typestack, expr->constant.type, 0);
 		typestack->value = ValueCategory (rvalue);
 		result = 1;
 	} else if (expr->type == ExprType (identifier)) {
-		init_typestack (typestack);
+		init_typestack (typestack, typestack->is_sizeof_context);
 		if (0 == strcmp (expr->iden.name, "__Filename")) {
 			expr->type = ExprType (string);
 			expr->string.token = unit->filename;
+			push_const_char_pointer_to_typestack (typestack);
+			typestack->value = ValueCategory (rvalue);
+			result = 1;
+		} else if (0 == strcmp (expr->iden.name, "__Filepath")) {
+			expr->type = ExprType (string);
+			expr->string.token = unit->filepath;
 			push_const_char_pointer_to_typestack (typestack);
 			typestack->value = ValueCategory (rvalue);
 			result = 1;
@@ -1360,7 +1569,16 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 			struct decl	*decl;
 			struct unit	*decl_unit;
 
-			decl_index = find_ordinary_decl (unit, scope_index, expr->iden.name);
+			decl_index = find_ordinary_decl_local (unit, scope_index, expr->iden.name);
+			if (!decl_index && unit->link_foreground_unit) {
+				decl_index = find_decl_in_table (Get_Bucket_Element (g_libs, unit->link_foreground_unit), expr->iden.name, TagType (invalid), 0);
+				if (!is_lib_index (decl_index)) {
+					decl_index = make_lib_index (unit->link_foreground_unit, decl_index);
+				}
+			}
+			if (!decl_index) {
+				decl_index = find_ordinary_decl_global (unit, expr->iden.name);
+			}
 			if (decl_index) {
 				if (is_lib_index (decl_index)) {
 					decl_unit = Get_Bucket_Element (g_libs, get_lib_index (decl_index));
@@ -1376,56 +1594,70 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 					result = 0;
 				}
 			} else {
+				print_included_libs (unit);
+				print_symbols_included_from (unit, 1);
 				Link_Error (unit, "undeclared identifier '%s'", expr->iden.name);
 				result = 0;
 			}
 			if (result) {
-				if (decl->kind == DeclKind (const)) {
-					if (decl->is_linked) {
+				if (decl->is_linked) {
+					result = 1;
+				} else {
+					if (link_decl (decl_unit, decl_unit->scope, get_decl_index (decl_unit, decl), 0)) {
 						result = 1;
 					} else {
-						if (link_decl (decl_unit, decl_unit->scope, get_decl_index (decl_unit, decl))) {
-							result = 1;
-						} else {
-							result = 0;
-						}
+						result = 0;
 					}
-					if (result) {
+				}
+				if (result) {
+					if (decl->kind == DeclKind (const)) {
 						uint	copy_expr;
 
-						copy_expr = make_expr_copy (unit, decl_unit, decl->dconst.expr);
+						copy_expr = make_expr_copy (unit, decl_unit, decl->dconst.expr, scope_index);
 						Assert (copy_expr);
 						expr->type = ExprType (op);
 						expr->op.type = OpType (group);
 						expr->op.forward = copy_expr;
 						update_typestack_recursive (unit, copy_expr, typestack);
+					} else if (decl->type) {
+						result = push_typestack_recursive (unit, decl_unit, typestack, decl->type);
+						if (decl->kind == DeclKind (param) && is_pointer_type (get_typestack_head (typestack), 1)) {
+							get_typestack_head (typestack)->mod.kind = TypeMod (pointer);
+						}
+					} else if (decl->kind == DeclKind (define)) {
+						struct type	type = {0};
+
+						type.kind = TypeKind (internal);
+						type.internal.decl = decl_index;
+						result = push_typestack (typestack, &type);
+						typestack->value = ValueCategory (rvalue);
+					} else if ((unit == decl_unit) && decl->kind == DeclKind (alias)) {
+						replace_expr_with_copy (unit, expr, decl_unit, decl->alias.expr, scope_index);
+						result = link_expr (unit, scope_index, get_expr_index (unit, expr), is_selfref_check, typestack);
+					} else {
+						Link_Error (unit, "untyped decl %s", decl->name);
+						result = 0;
 					}
-				} else if (decl->type) {
-					result = push_typestack_recursive (unit, decl_unit, typestack, decl->type);
+				}
+				if (result) {
 					if (get_typestack_head (typestack)->kind == TypeKind (mod) && get_typestack_head (typestack)->mod.kind == TypeMod (function)) {
 						Assert (decl->kind == DeclKind (func) || decl->kind == DeclKind (define));
 						push_pointer_type_to_typestack (typestack, 0);
 						typestack->value = ValueCategory (rvalue);
+					} else if (get_typestack_head (typestack)->kind == TypeKind (mod) && get_typestack_head (typestack)->mod.kind == TypeMod (array)) {
+						if (typestack->is_sizeof_context) {
+							typestack->value = ValueCategory (rvalue);
+						} else {
+							get_typestack_head (typestack)->mod.kind = TypeMod (pointer);
+							typestack->value = ValueCategory (rvalue);
+						}
 					} else {
 						if (get_typestack_head (typestack)->kind == TypeKind (tag) && get_typestack_head (typestack)->tag.type == TagType (enum)) {
-							init_typestack (typestack);
+							init_typestack (typestack, typestack->is_sizeof_context);
 							push_basictype_to_typestack (typestack, BasicType (int), 0);
 						}
 						typestack->value = ValueCategory (lvalue);
 					}
-				} else if (decl->kind == DeclKind (define)) {
-					struct type	type = {0};
-
-					type.kind = TypeKind (internal);
-					type.internal.decl = decl_index;
-					result = push_typestack (typestack, &type);
-					typestack->value = ValueCategory (rvalue);
-				} else if ((unit == decl_unit) && decl->kind == DeclKind (alias)) {
-					replace_expr_with_copy (unit, expr, decl_unit, decl->alias.expr);
-					result = link_expr (unit, scope_index, get_expr_index (unit, expr), is_selfref_check, typestack);
-				} else {
-					Link_Error (unit, "untyped decl %s", decl->name);
-					result = 0;
 				}
 			}
 		}
@@ -1442,7 +1674,7 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 				type.tag.type = TagType (struct);
 				type.tag.name = "typeinfo";
 				type.tag.decl = g_typeinfo_struct_decl;
-				init_typestack (typestack);
+				init_typestack (typestack, typestack->is_sizeof_context);
 				result = push_typestack (typestack, &type);
 				typestack->value = ValueCategory (lvalue);
 			} else {
@@ -1459,7 +1691,7 @@ int		link_expr (struct unit *unit, uint scope_index, uint expr_index, int is_sel
 		decl = get_decl (unit, expr->macroparam.decl);
 		Assert (decl->kind == DeclKind (param));
 		Assert (decl->param.expr);
-		expr_copy = make_expr_copy (unit, unit, decl->param.expr);
+		expr_copy = make_expr_copy (unit, unit, decl->param.expr, scope_index);
 		Assert (expr_copy);
 		expr->type = ExprType (op);
 		expr->op.type = OpType (group);
@@ -1532,7 +1764,7 @@ int		link_type (struct unit *unit, uint scope_index, uint type_index, int is_sel
 	} else if (type->kind == TypeKind (typeof)) {
 		struct typestack	ctypestack, *typestack = &ctypestack;
 
-		init_typestack (typestack);
+		init_typestack (typestack, 0);
 		if (link_expr (unit, scope_index, type->typeof.expr, is_selfref_check, typestack)) {
 			result = insert_typestack_to_type (unit, type_index, typestack);
 		} else {
@@ -1549,24 +1781,35 @@ int		link_type (struct unit *unit, uint scope_index, uint type_index, int is_sel
 
 			if (is_lib_index (decl_index)) {
 				decl_unit = Get_Bucket_Element (g_libs, get_lib_index (decl_index));
-				decl = get_decl (decl_unit, unlib_index (decl_index));
 			} else {
 				decl_unit = unit;
-				decl = get_decl (decl_unit, decl_index);
 			}
-			Assert (decl->kind == DeclKind (define) && decl->define.kind == DefineKind (type));
-			Assert (decl->type);
-			replace_type_with_copy (unit, type, decl_unit, decl->type);
-			type->flags.is_group = 1;
-			if (link_type (unit, scope_index, type_index, is_selfref_check)) {
+			decl = get_decl (decl_unit, unlib_index (decl_index));
+			Assert (decl->kind == DeclKind (define));
+			if (decl->define.kind == DefineKind (opaque)) {
+				const char	*name;
+
+				name = type->deftype.name;
+				type->kind = TypeKind (opaque);
+				type->opaque.decl = decl_index;
 				result = 1;
 			} else {
-				result = 0;
+				Assert (decl->define.kind == DefineKind (type));
+				Assert (decl->type);
+				replace_type_with_copy (unit, type, decl_unit, decl->type, scope_index);
+				type->flags.is_group = 1;
+				if (link_type (unit, scope_index, type_index, is_selfref_check)) {
+					result = 1;
+				} else {
+					result = 0;
+				}
 			}
 		} else {
 			Link_Error (unit, "undeclared type '%s'", type->deftype.name);
 			result = 0;
 		}
+	} else if (type->kind == TypeKind (opaque)) {
+		result = 1;
 	} else {
 		Unreachable ();
 	}
@@ -1614,7 +1857,7 @@ int		link_decl_const (struct unit *unit, uint scope_index, uint decl_index) {
 		struct typestack	ctypestack, *typestack = &ctypestack;
 
 		decl->is_in_process = 1;
-		init_typestack (typestack);
+		init_typestack (typestack, 0);
 		push_expr_path (unit, decl->dconst.expr);
 		result = link_expr (unit, scope_index, decl->dconst.expr, 1, typestack);
 		pop_path (unit);
@@ -1641,7 +1884,10 @@ int		link_param_scope (struct unit *unit, uint scope_index, uint param_scope_ind
 			if (decl->type) {
 				push_decl_path (unit, get_decl_index (unit, decl));
 				push_type_path (unit, decl->type);
+				decl->is_in_process = 1;
 				result = link_type (unit, scope_index, decl->type, 1);
+				decl->is_in_process = 0;
+				decl->is_linked = 1;
 				pop_path (unit);
 				pop_path (unit);
 			}
@@ -1653,7 +1899,7 @@ int		link_param_scope (struct unit *unit, uint scope_index, uint param_scope_ind
 	return (result);
 }
 
-int		link_decl (struct unit *unit, uint scope_index, uint decl_index);
+int		link_decl (struct unit *unit, uint scope_index, uint decl_index, int is_global);
 int		link_code_scope (struct unit *unit, uint scope_index);
 
 int		link_code_scope_flow (struct unit *unit, uint scope_index, uint flow_index) {
@@ -1661,13 +1907,13 @@ int		link_code_scope_flow (struct unit *unit, uint scope_index, uint flow_index)
 	struct flow			*flow;
 	struct typestack	typestack;
 
-	init_typestack (&typestack);
+	init_typestack (&typestack, 0);
 	push_flow_path (unit, scope_index, flow_index);
 	flow = get_flow (unit, flow_index);
 	unit->pos.line = flow->line;
 	if (flow->type == FlowType (decl)) {
 		unit->link_decl_index = flow->decl.index;
-		result = link_decl (unit, scope_index, flow->decl.index);
+		result = link_decl (unit, scope_index, flow->decl.index, 0);
 	} else if (flow->type == FlowType (expr)) {
 		if (flow->expr.index) {
 			push_expr_path (unit, flow->expr.index);
@@ -1698,13 +1944,13 @@ int		link_code_scope_flow (struct unit *unit, uint scope_index, uint flow_index)
 				result = 0;
 			}
 		}
-	} else if (flow->type == FlowType (constif)) {
-		push_expr_path (unit, flow->constif.expr);
-		if (link_expr (unit, scope_index, flow->constif.expr, 0, &typestack)) {
+	} else if (flow->type == FlowType (static_if)) {
+		push_expr_path (unit, flow->static_if.expr);
+		if (link_expr (unit, scope_index, flow->static_if.expr, 0, &typestack)) {
 			struct evalvalue	value = {0};
 
 			/* check if type is ok for if statement */
-			if (eval_const_expr (unit, flow->constif.expr, &value)) {
+			if (eval_const_expr (unit, flow->static_if.expr, &value)) {
 				int		is_true;
 
 				if (value.type == EvalType (basic)) {
@@ -1716,10 +1962,10 @@ int		link_code_scope_flow (struct unit *unit, uint scope_index, uint flow_index)
 						}
 						result = 1;
 					} else if (value.basic == BasicType (void)) {
-						Link_Error (unit, "value for constif condition has void type");
+						Link_Error (unit, "value for static_if condition has void type");
 						result = 0;
 					} else {
-						Link_Error (unit, "cannot convert floating point number to boolean in constif condition");
+						Link_Error (unit, "cannot convert floating point number to boolean in static_if condition");
 						result = 0;
 					}
 				} else if (value.type == EvalType (string)) {
@@ -1732,7 +1978,7 @@ int		link_code_scope_flow (struct unit *unit, uint scope_index, uint flow_index)
 					is_true = value.typemember_index != 0;
 					result = 1;
 				} else {
-					Link_Error (unit, "invalid value for constif condition");
+					Link_Error (unit, "invalid value for static_if condition");
 					result = 0;
 				}
 				if (result) {
@@ -1740,12 +1986,12 @@ int		link_code_scope_flow (struct unit *unit, uint scope_index, uint flow_index)
 
 					next = flow->next;
 					if (is_true) {
-						*flow = *get_flow (unit, flow->constif.flow_body);
+						*flow = *get_flow (unit, flow->static_if.flow_body);
 						flow->next = next;
 						result = link_code_scope_flow (unit, scope_index, flow_index);
 					} else {
-						if (flow->constif.else_body) {
-							*flow = *get_flow (unit, flow->constif.else_body);
+						if (flow->static_if.else_body) {
+							*flow = *get_flow (unit, flow->static_if.else_body);
 							flow->next = next;
 							result = link_code_scope_flow (unit, scope_index, flow_index);
 						} else {
@@ -1785,6 +2031,72 @@ int		link_code_scope_flow (struct unit *unit, uint scope_index, uint flow_index)
 		} else {
 			result = 0;
 		}
+	} else if (flow->type == FlowType (assert) || flow->type == FlowType (static_assert)) {
+		push_expr_path (unit, flow->dowhile.expr);
+		if (link_expr (unit, scope_index, flow->assert.expr, 0, &typestack)) {
+			if (is_pointer_type (get_typestack_head (&typestack), 0) || is_type_integral (get_typestack_head (&typestack))) {
+				if (flow->type == FlowType (static_assert)) {
+					struct evalvalue	value = {0};
+
+					if (eval_const_expr (unit, flow->assert.expr, &value)) {
+						int		is_true;
+
+						if (value.type == EvalType (basic)) {
+							if (is_basictype_integral (value.basic)) {
+								if (is_basictype_signed (value.basic)) {
+									is_true = value.value != 0;
+								} else {
+									is_true = value.uvalue != 0;
+								}
+								result = 1;
+							} else if (value.basic == BasicType (void)) {
+								Link_Error (unit, "value for static_assert condition has void type");
+								result = 0;
+							} else {
+								Link_Error (unit, "cannot convert floating point number to boolean in static_assert condition");
+								result = 0;
+							}
+						} else if (value.type == EvalType (string)) {
+							is_true = value.string != 0;
+							result = 1;
+						} else if (value.type == EvalType (typeinfo_pointer)) {
+							is_true = value.typeinfo_index != 0;
+							result = 1;
+						} else if (value.type == EvalType (typemember_pointer)) {
+							is_true = value.typemember_index != 0;
+							result = 1;
+						} else {
+							Link_Error (unit, "invalid value for static_assert condition");
+							result = 0;
+						}
+						if (result) {
+							if (is_true) {
+								result = 1;
+							} else {
+								Link_Error (unit, "Assertion failed");
+								fprintf (stderr, "Asserted expression: ");
+								print_expr (unit, flow->assert.expr, stderr);
+								fprintf (stderr, "\n");
+								result = 0;
+							}
+						}
+					} else {
+						Link_Error (unit, "cannot evaluate constant expression of static_assert statement");
+						result = 0;
+					}
+				} else {
+					result = 1;
+				}
+			} else {
+				Link_Error (unit, "assertion condition must have an intergral or pointer type");
+				result = 0;
+			}
+		} else {
+			result = 0;
+		}
+		pop_path (unit);
+	} else if (flow->type == FlowType (unreachable)) {
+		result = 1;
 	} else {
 		Unreachable ();
 	}
@@ -1831,7 +2143,7 @@ int		link_decl_func (struct unit *unit, uint scope_index, uint decl_index) {
 		pop_path (unit);
 		if (result) {
 			if (link_param_scope (unit, scope_index, decl->func.param_scope)) {
-				result = link_code_scope (unit, decl->func.scope);
+				result = 1;
 			} else {
 				result = 0;
 			}
@@ -1869,13 +2181,13 @@ int		link_enum_table (struct unit *unit, uint scope_index, uint params) {
 			decl = get_decl (unit, decl_index);
 			Assert (decl->kind == DeclKind (param));
 			Assert (decl->type);
-			init_typestack (&typestack);
+			init_typestack (&typestack, 0);
 			if (link_expr (unit, scope_index, expr->funcparam.expr, 1, &typestack)) {
 				struct typestack	leftstack = {0};
 
-				init_typestack (&leftstack);
+				init_typestack (&leftstack, 0);
 				push_typestack_recursive (unit, unit, &leftstack, decl->type);
-				if (is_typestacks_compatible (&leftstack, &typestack, 0)) {
+				if (is_typestacks_compatible (&leftstack, &typestack)) {
 					result = 1;
 				} else {
 					Link_Error (unit, "types are not compatible in enum table");
@@ -1917,26 +2229,13 @@ int		link_enum_scope_flow (struct unit *unit, uint scope_index, uint flow_index)
 		unit->link_decl_index = flow->decl.index;
 		decl = get_decl (unit, flow->decl.index);
 		Assert (decl->kind == DeclKind (enum));
-		if (decl->enumt.expr) {
-			if (decl->is_in_process == 0) {
-				struct typestack	typestack;
-
-				decl->is_in_process = 1;
-				init_typestack (&typestack);
-				result = link_expr (unit, scope_index, decl->enumt.expr, 1, &typestack);
-				if (get_typestack_head (&typestack)->kind == TypeKind (basic) && is_basictype_integral (get_typestack_head (&typestack)->basic.type)) {
-					result = 1;
-				} else {
-					Link_Error (unit, "enum constant has non-integral value");
-					result = 0;
-				}
-				decl->is_in_process = 0;
+		if (get_scope (unit, scope_index)->param_scope) {
+			if (decl->enumt.params) {
+				result = link_enum_table (unit, scope_index, decl->enumt.params);
 			} else {
-				Link_Error (unit, "self referencing");
+				Link_Error (unit, "enum constant doesn't declare parameters in the parametric enum scope");
 				result = 0;
 			}
-		} else if (get_scope (unit, scope_index)->param_scope) {
-			result = link_enum_table (unit, scope_index, decl->enumt.params);
 		} else if (decl->enumt.params) {
 			Link_Error (unit, "enum constant declaration has parameters when the scope doesn't have any");
 			result = 0;
@@ -1977,7 +2276,7 @@ int		link_struct_scope_flow (struct unit *unit, uint scope_index, uint flow_inde
 	flow = get_flow (unit, flow_index);
 	if (flow->type == FlowType (decl)) {
 		unit->link_decl_index = flow->decl.index;
-		result = link_decl (unit, scope_index, flow->decl.index);
+		result = link_decl (unit, scope_index, flow->decl.index, 0);
 	} else {
 		Unreachable ();
 	}
@@ -2035,7 +2334,7 @@ int		link_init_scope_flow (struct unit *unit, uint scope_index, uint flow_index)
 	if (flow->init.type == InitType (expr)) {
 		struct typestack	typestack;
 
-		init_typestack (&typestack);
+		init_typestack (&typestack, 0);
 		result = link_expr (unit, scope_index, flow->init.body, 1, &typestack);
 	} else {
 		Assert (flow->init.type == InitType (list));
@@ -2072,7 +2371,7 @@ int		link_init_scope_flow (struct unit *unit, uint scope_index, uint flow_index)
 				Assert (decl->type);
 				if (decl_unit != unit) {
 					/* !memory: free copy of old iteration */
-					init_scope->type_index = make_type_copy (unit, decl_unit, decl->type);
+					init_scope->type_index = make_type_copy (unit, decl_unit, decl->type, scope_index);
 				} else {
 					init_scope->type_index = decl->type;
 				}
@@ -2282,7 +2581,7 @@ int		link_decl_assert (struct unit *unit, uint scope_index, uint decl_index) {
 
 	push_decl_path (unit, decl_index);
 	decl = get_decl (unit, decl_index);
-	init_typestack (&typestack);
+	init_typestack (&typestack, 0);
 	decl->is_in_process = 1;
 	if (link_expr (unit, scope_index, decl->define.assert.expr, 1, &typestack)) {
 		struct evalvalue	value = {0};
@@ -2341,13 +2640,13 @@ int		link_decl_assert (struct unit *unit, uint scope_index, uint decl_index) {
 	return (result);
 }
 
-int		link_decl (struct unit *unit, uint scope_index, uint decl_index) {
+int		link_decl (struct unit *unit, uint scope_index, uint decl_index, int is_global) {
 	int			result;
 	struct decl	*decl;
 
 	decl = get_decl (unit, decl_index);
 	if (!decl->is_linked) {
-		unit->filename = decl->filename;
+		unit->filepath = decl->filepath;
 		if (decl->kind == DeclKind (var)) {
 			result = link_decl_var (unit, scope_index, decl_index);
 		} else if (decl->kind == DeclKind (const)) {
@@ -2369,6 +2668,8 @@ int		link_decl (struct unit *unit, uint scope_index, uint decl_index) {
 				result = link_decl_funcprefix (unit, scope_index, decl_index);
 			} else if (decl->define.kind == DefineKind (type)) {
 				result = link_decl_type (unit, scope_index, decl_index);
+			} else if (decl->define.kind == DefineKind (opaque)) {
+				result = 1;
 			} else if (decl->define.kind == DefineKind (macro)) {
 				result = 1;
 			} else if (decl->define.kind == DefineKind (builtin)) {
@@ -2385,6 +2686,10 @@ int		link_decl (struct unit *unit, uint scope_index, uint decl_index) {
 		}
 	} else {
 		result = 1;
+	}
+	if (result && is_global && decl->kind == DeclKind (func)) {
+		unit->function_name = decl->name;
+		result = link_code_scope (unit, decl->func.scope);
 	}
 	return (result);
 }
@@ -2405,7 +2710,7 @@ int		link_unit_scope (struct unit *unit, uint scope_index) {
 				unit->pos.line = flow->line;
 				if (flow->type == FlowType (decl)) {
 					unit->link_decl_index = flow->decl.index;
-					result = link_decl (unit, scope_index, flow->decl.index);
+					result = link_decl (unit, scope_index, flow->decl.index, 1);
 				} else {
 					Link_Error (unit, "unexpected flow type in unit scope");
 					result = 0;

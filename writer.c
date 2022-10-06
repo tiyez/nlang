@@ -1,7 +1,7 @@
 
 
 struct wrbuffer {
-	char	*buffer;
+	char	**buffer;
 };
 
 void	init_wrbuffer (struct wrbuffer *wr) {
@@ -9,14 +9,14 @@ void	init_wrbuffer (struct wrbuffer *wr) {
 }
 
 void	free_wrbuffer (struct wrbuffer *wr) {
-	Free_Array (wr->buffer);
+	Free_Bucket (wr->buffer);
 }
 
 int		write_string_n (struct wrbuffer *wr, const char *string, usize len) {
 	int		result;
 
-	if (Prepare_Array (wr->buffer, len)) {
-		memcpy (Push_Array_N (wr->buffer, len), string, len);
+	if (Prepare_Bucket_Continuous (wr->buffer, len)) {
+		memcpy (Push_Bucket_N_Continuous (wr->buffer, len), string, len);
 		result = 1;
 	} else {
 		Error ("cannot prepare wrbuffer for string %zu", len);

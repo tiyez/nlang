@@ -182,15 +182,17 @@ void	print_path (struct unit *unit, struct path *paths, FILE *file) {
 			fprintf (file, "-- tag: %s %s\n", g_tagname[decl->tag.type], decl->name);
 		} else if (path->kind == Path_Kind (decl)) {
 			struct decl	*decl;
+			struct unit	*decl_unit;
 
 			if (is_lib_index (path->decl.index)) {
-				decl = get_decl (get_lib (get_lib_index (path->decl.index)), unlib_index (path->decl.index));
+				decl_unit = get_lib (get_lib_index (path->decl.index));
 			} else {
-				decl = get_decl (unit, unlib_index (path->decl.index));
+				decl_unit = unit;
 			}
+			decl = get_decl (decl_unit, unlib_index (path->decl.index));
 			fprintf (file, "-- decl: %s ", decl->name);
 			if (decl->type) {
-				print_type (unit, decl->type, file);
+				print_type (decl_unit, decl->type, file);
 			}
 			fprintf (file, "\n");
 		} else if (path->kind == Path_Kind (flow)) {
@@ -200,15 +202,20 @@ void	print_path (struct unit *unit, struct path *paths, FILE *file) {
 			if (flow->type == FlowType (decl)) {
 				fprintf (file, "-- flow: decl\n");
 			} else if (flow->type == FlowType (expr)) {
-				fprintf (file, "-- flow: expr\n");
 			} else if (flow->type == FlowType (block)) {
 				fprintf (file, "-- flow: block\n");
 			} else if (flow->type == FlowType (if)) {
-				fprintf (file, "-- flow: if\n");
+				fprintf (file, "-- flow: if (");
+				print_expr (unit, flow->fif.expr, file);
+				fprintf (file, ")\n");
 			} else if (flow->type == FlowType (while)) {
-				fprintf (file, "-- flow: while\n");
+				fprintf (file, "-- flow: while (");
+				print_expr (unit, flow->fwhile.expr, file);
+				fprintf (file, ")\n");
 			} else if (flow->type == FlowType (dowhile)) {
-				fprintf (file, "-- flow: dowhile\n");
+				fprintf (file, "-- flow: do _ while (\n");
+				print_expr (unit, flow->dowhile.expr, file);
+				fprintf (file, ")\n");
 			}
 		} else if (path->kind == Path_Kind (type)) {
 			fprintf (file, "-- type: ");

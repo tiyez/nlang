@@ -1,9 +1,10 @@
 
 
-void	init_typestack (struct typestack *typestack) {
+void	init_typestack (struct typestack *typestack, int is_sizeof_context) {
 	typestack->types_count = 0;
 	typestack->head = -1;
 	typestack->value = ValueCategory (rvalue);
+	typestack->is_sizeof_context = is_sizeof_context;
 }
 
 struct type	*get_typestack_type (struct typestack *typestack, int index) {
@@ -11,7 +12,19 @@ struct type	*get_typestack_type (struct typestack *typestack, int index) {
 }
 
 struct type	*get_typestack_type_gen (struct typestack *typestack, uint index) {
-	return (index > 0 ? typestack->types + (index - 1) : 0);
+	static struct type	gtype;
+	struct type	*result;
+
+	if (index > 0) {
+		gtype = typestack->types[index - 1];
+		if (gtype.kind == TypeKind (mod)) {
+			gtype.mod.forward += 1;
+		}
+		result = &gtype;
+	} else {
+		result = 0;
+	}
+	return (result);
 }
 
 struct type	*get_typestack_head (struct typestack *typestack) {
@@ -23,7 +36,7 @@ struct type *get_typestack_tail (struct typestack *typestack) {
 }
 
 void	empty_typestack (struct typestack *typestack) {
-	init_typestack (typestack);
+	init_typestack (typestack, 0);
 }
 
 int		push_typestack (struct typestack *typestack, struct type *type) {
@@ -56,19 +69,21 @@ int		push_typestack_recursive (struct unit *unit, struct unit *decl_unit, struct
 	struct type	*type;
 
 	type = get_type (decl_unit, type_index);
-	if (type->kind == TypeKind (internal) || type->kind == TypeKind (tag) || type->kind == TypeKind (basic)) {
+	if (type->kind == TypeKind (internal) || type->kind == TypeKind (tag) || type->kind == TypeKind (basic) || type->kind == TypeKind (opaque)) {
 		result = push_typestack (typestack, type);
 		if (unit != decl_unit) {
 			type = get_typestack_head (typestack);
 			if (type->kind == TypeKind (tag)) {
 				if (type->tag.decl && !is_lib_index (type->tag.decl)) {
-					Assert (decl_unit != g_unit);
 					type->tag.decl = make_lib_index (Get_Bucket_Element_Index (g_libs, decl_unit), type->tag.decl);
 				}
 			} else if (type->kind == TypeKind (internal)) {
 				if (type->internal.decl && !is_lib_index (type->internal.decl)) {
-					Assert (decl_unit != g_unit);
 					type->internal.decl = make_lib_index (Get_Bucket_Element_Index (g_libs, decl_unit), type->internal.decl);
+				}
+			} else if (type->kind == TypeKind (opaque)) {
+				if (type->opaque.decl && !is_lib_index (type->opaque.decl)) {
+					type->opaque.decl = make_lib_index (Get_Bucket_Element_Index (g_libs, decl_unit), type->opaque.decl);
 				}
 			}
 		}
@@ -145,13 +160,16 @@ int		insert_typestack_to_type (struct unit *unit, int type_index, struct typesta
 	if (type->kind == TypeKind (internal) || type->kind == TypeKind (tag) || type->kind == TypeKind (basic)) {
 		result = 1;
 	} else if (type->kind == TypeKind (mod)) {
-		uint	child_type_index;
+		uint		child_type_index;
+		struct type	restore_type;
 
 		child_type_index = make_basic_type (unit, BasicType (void), 0);
 		Assert (child_type_index);
 		type->mod.forward = child_type_index;
+		restore_type = *get_typestack_head (typestack);
 		pop_typestack (typestack);
 		result = insert_typestack_to_type (unit, child_type_index, typestack);
+		push_typestack (typestack, &restore_type);
 	} else {
 		Unreachable ();
 	}
@@ -159,7 +177,7 @@ int		insert_typestack_to_type (struct unit *unit, int type_index, struct typesta
 }
 
 void	print_left_right_typestacks (struct unit *unit, struct typestack *left, struct typestack *right) {
-	fprintf (stderr, "\nleft type: ");
+	fprintf (stderr, "left type: ");
 	print_typestack (unit, left, stderr);
 	fprintf (stderr, "\nright type: ");
 	print_typestack (unit, right, stderr);
@@ -170,6 +188,25 @@ void	print_type_typestack (struct unit *unit, struct typestack *typestack) {
 	fprintf (stderr, "\ntype: ");
 	print_typestack (unit, typestack, stderr);
 	fprintf (stderr, "\n");
+}
+
+int		is_typestack_sizeof_context (struct typestack *typestack, struct expr *expr) {
+	int		result;
+
+	if (expr->type == ExprType (op)) {
+		if (expr->op.type == OpType (group)) {
+			result = 0;
+		} else if (expr->op.type == OpType (sizeof) || expr->op.type == OpType (alignof)) {
+			result = 1;
+		} else if (expr->op.type == OpType (address_of)) {
+			result = 1;
+		} else {
+			result = typestack->is_sizeof_context;
+		}
+	} else {
+		result = typestack->is_sizeof_context;
+	}
+	return (result);
 }
 
 void	update_typestack (struct unit *unit, struct expr *expr, struct typestack *typestack, struct typestack *rightstack) {
@@ -197,10 +234,10 @@ void	update_typestack (struct unit *unit, struct expr *expr, struct typestack *t
 			Assert (left);
 			Assert (right);
 			if (is_type_integral (left)) {
-				Assert (is_pointer_type (right));
+				Assert (is_pointer_type (right, rightstack->is_sizeof_context));
 				*typestack = *rightstack;
 			} else {
-				Assert (is_pointer_type (left));
+				Assert (is_pointer_type (left, typestack->is_sizeof_context));
 				Assert (is_type_integral (right));
 			}
 			pop_typestack (typestack);
@@ -208,7 +245,7 @@ void	update_typestack (struct unit *unit, struct expr *expr, struct typestack *t
 			typestack->value = ValueCategory (lvalue);
 		} else if (expr->op.type == OpType (cast)) {
 			Assert (left);
-			init_typestack (typestack);
+			init_typestack (typestack, typestack->is_sizeof_context);
 			if (push_typestack_recursive (unit, unit, typestack, expr->op.backward)) {
 				Assert (get_typestack_head (typestack));
 				typestack->value = ValueCategory (rvalue);
@@ -219,7 +256,7 @@ void	update_typestack (struct unit *unit, struct expr *expr, struct typestack *t
 			Assert (left);
 			Assert (right);
 			if (expr->op.type == OpType (indirect_access)) {
-				Assert (is_pointer_type (left));
+				Assert (is_pointer_type (left, typestack->is_sizeof_context));
 				pop_typestack (typestack);
 				left = get_typestack_head (typestack);
 				typestack->value = ValueCategory (lvalue);
@@ -232,21 +269,26 @@ void	update_typestack (struct unit *unit, struct expr *expr, struct typestack *t
 			Assert (get_typestack_head (typestack));
 		} else if (expr->op.type == OpType (address_of)) {
 			Assert (left);
-			Assert (typestack->value == ValueCategory (lvalue));
-			push_pointer_type_to_typestack (typestack, 0);
-			typestack->value = ValueCategory (rvalue);
+			if (left->kind == TypeKind (mod) && left->mod.kind == TypeMod (array)) {
+				push_pointer_type_to_typestack (typestack, 0);
+				typestack->value = ValueCategory (rvalue);
+			} else {
+				Assert (typestack->value == ValueCategory (lvalue));
+				push_pointer_type_to_typestack (typestack, 0);
+				typestack->value = ValueCategory (rvalue);
+			}
 		} else if (expr->op.type == OpType (typesizeof) || expr->op.type == OpType (typealignof)) {
-			init_typestack (typestack);
+			init_typestack (typestack, typestack->is_sizeof_context);
 			push_basictype_to_typestack (typestack, BasicType (usize), 0);
 			typestack->value = ValueCategory (rvalue);
 		} else if (expr->op.type == OpType (sizeof) || expr->op.type == OpType (alignof)) {
-			init_typestack (typestack);
+			init_typestack (typestack, typestack->is_sizeof_context);
 			push_basictype_to_typestack (typestack, BasicType (usize), 0);
 			typestack->value = ValueCategory (rvalue);
 		} else if (expr->op.type == OpType (unary_plus) || expr->op.type == OpType (unary_minus) || expr->op.type == OpType (bitwise_not)) {
 			Assert (left);
 			Assert (left->kind == TypeKind (basic));
-			Assert (left->basic.type == BasicType (void));
+			Assert (left->basic.type != BasicType (void));
 			if (is_basictype_integral (left->basic.type)) {
 				left->basic.type = get_promoted_basictype (left->basic.type);
 			} else {
@@ -258,18 +300,18 @@ void	update_typestack (struct unit *unit, struct expr *expr, struct typestack *t
 			if (left->kind == TypeKind (basic)) {
 				Assert (left->basic.type != BasicType (void));
 				Assert (is_basictype_integral (left->basic.type));
-				init_typestack (typestack);
+				init_typestack (typestack, typestack->is_sizeof_context);
 				push_basictype_to_typestack (typestack, BasicType (int), 0);
 				typestack->value = ValueCategory (rvalue);
 			} else {
-				Assert (is_pointer_type (left));
-				init_typestack (typestack);
+				Assert (is_pointer_type (left, typestack->is_sizeof_context));
+				init_typestack (typestack, typestack->is_sizeof_context);
 				push_basictype_to_typestack (typestack, BasicType (int), 0);
 				typestack->value = ValueCategory (rvalue);
 			}
 		} else if (expr->op.type == OpType (indirect)) {
 			Assert (left);
-			Assert (is_pointer_type (left));
+			Assert (is_pointer_type (left, typestack->is_sizeof_context));
 			pop_typestack (typestack);
 			typestack->value = ValueCategory (lvalue);
 			Assert (get_typestack_head (typestack));
@@ -282,7 +324,7 @@ void	update_typestack (struct unit *unit, struct expr *expr, struct typestack *t
 					Assert (is_basictype_integral (left->basic.type) && is_basictype_integral (right->basic.type));
 				}
 				if (is_comparison_optype (expr->op.type)) {
-					init_typestack (typestack);
+					init_typestack (typestack, typestack->is_sizeof_context);
 					push_basictype_to_typestack (typestack, BasicType (int), 0);
 				} else {
 					if (!is_assignment_optype (expr->op.type)) {
@@ -291,23 +333,23 @@ void	update_typestack (struct unit *unit, struct expr *expr, struct typestack *t
 				}
 				typestack->value = ValueCategory (rvalue);
 			} else {
-				Assert (is_pointer_type (left) || is_pointer_type (right));
-				if (is_pointer_type (left) && is_pointer_type (right)) {
+				Assert (is_pointer_type (left, typestack->is_sizeof_context) || is_pointer_type (right, rightstack->is_sizeof_context));
+				if (is_pointer_type (left, typestack->is_sizeof_context) && is_pointer_type (right, rightstack->is_sizeof_context)) {
 					Assert (!is_assignment_optype (expr->op.type));
 					if (is_comparison_optype (expr->op.type)) {
-						init_typestack (typestack);
+						init_typestack (typestack, typestack->is_sizeof_context);
 						push_basictype_to_typestack (typestack, BasicType (int), 0);
 						typestack->value = ValueCategory (rvalue);
 					} else {
 						Assert (expr->op.type == OpType (subtract));
-						init_typestack (typestack);
+						init_typestack (typestack, typestack->is_sizeof_context);
 						push_basictype_to_typestack (typestack, BasicType (size), 0);
 						typestack->value = ValueCategory (rvalue);
 					}
 				} else {
 					struct type	*ptr, *integ;
 
-					if (is_pointer_type (left)) {
+					if (is_pointer_type (left, typestack->is_sizeof_context)) {
 						ptr = left;
 						integ = right;
 					} else {
@@ -317,7 +359,7 @@ void	update_typestack (struct unit *unit, struct expr *expr, struct typestack *t
 					}
 					Assert (integ->kind == TypeKind (basic) && is_basictype_integral (integ->basic.type));
 					if (is_comparison_optype (expr->op.type)) {
-						init_typestack (typestack);
+						init_typestack (typestack, typestack->is_sizeof_context);
 						push_basictype_to_typestack (typestack, BasicType (int), 0);
 						typestack->value = ValueCategory (rvalue);
 					} else {
@@ -335,22 +377,22 @@ void	update_typestack (struct unit *unit, struct expr *expr, struct typestack *t
 			if (left->kind == TypeKind (basic) && right->kind == TypeKind (basic)) {
 				Assert (left->basic.type != BasicType (void) && right->basic.type != BasicType (void));
 				typestack->value = ValueCategory (rvalue);
-			} else if (is_pointer_type (left) && is_pointer_type (right)) {
+			} else if (is_pointer_type (left, typestack->is_sizeof_context) && is_pointer_type (right, rightstack->is_sizeof_context)) {
 				Assert (is_same_type (typestack, rightstack, 1));
 				typestack->value = ValueCategory (rvalue);
 			} else if (left->kind == right->kind && left->kind == TypeKind (tag) && left->tag.type == right->tag.type) {
 				Assert (left->tag.decl == right->tag.decl);
 				typestack->value = ValueCategory (rvalue);
 			} else {
-				Assert (is_pointer_type (left) && right->kind == TypeKind (basic));
+				Assert (is_pointer_type (left, typestack->is_sizeof_context) && right->kind == TypeKind (basic));
 				typestack->value = ValueCategory (rvalue);
 			}
 		} else if (expr->op.type == OpType (logical_and) || expr->op.type == OpType (logical_or)) {
 			Assert (left);
 			Assert (right);
-			Assert (is_pointer_type (left) || (left->kind == TypeKind (basic) && is_basictype_integral (left->basic.type)));
-			Assert (is_pointer_type (right) || (right->kind == TypeKind (basic) && is_basictype_integral (right->basic.type)));
-			init_typestack (typestack);
+			Assert (is_pointer_type (left, typestack->is_sizeof_context) || (left->kind == TypeKind (basic) && is_basictype_integral (left->basic.type)));
+			Assert (is_pointer_type (right, rightstack->is_sizeof_context) || (right->kind == TypeKind (basic) && is_basictype_integral (right->basic.type)));
+			init_typestack (typestack, typestack->is_sizeof_context);
 			push_basictype_to_typestack (typestack, BasicType (int), 0);
 			typestack->value = ValueCategory (rvalue);
 		} else if (expr->op.type == OpType (left_shift) || expr->op.type == OpType (right_shift) || expr->op.type == OpType (left_shift_assign) || expr->op.type == OpType (right_shift_assign)) {
@@ -363,14 +405,14 @@ void	update_typestack (struct unit *unit, struct expr *expr, struct typestack *t
 			Unreachable ();
 		}
 	} else if (expr->type == ExprType (constant)) {
-		init_typestack (typestack);
+		init_typestack (typestack, typestack->is_sizeof_context);
 		push_basictype_to_typestack (typestack, expr->constant.type, 0);
 		typestack->value = ValueCategory (rvalue);
 	} else if (expr->type == ExprType (identifier)) {
 		struct decl	*decl;
 		struct unit	*decl_unit;
 
-		init_typestack (typestack);
+		init_typestack (typestack, typestack->is_sizeof_context);
 		if (is_lib_index (expr->iden.decl)) {
 			decl_unit = get_lib (get_lib_index (expr->iden.decl));
 		} else {
@@ -386,14 +428,14 @@ void	update_typestack (struct unit *unit, struct expr *expr, struct typestack *t
 				typestack->value = ValueCategory (rvalue);
 			} else if (left->kind == TypeKind (mod) && left->mod.kind == TypeMod (array)) {
 				if (typestack->is_sizeof_context) {
-					typestack->value = ValueCategory (lvalue);
+					typestack->value = ValueCategory (rvalue);
 				} else {
 					left->mod.kind = TypeMod (pointer);
 					typestack->value = ValueCategory (rvalue);
 				}
 			} else {
 				if (left->kind == TypeKind (tag) && left->tag.type == TagType (enum)) {
-					init_typestack (typestack);
+					init_typestack (typestack, typestack->is_sizeof_context);
 					push_basictype_to_typestack (typestack, BasicType (int), 0);
 				}
 				typestack->value = ValueCategory (lvalue);
@@ -414,23 +456,23 @@ void	update_typestack (struct unit *unit, struct expr *expr, struct typestack *t
 		type.tag.type = TagType (struct);
 		type.tag.name = "typeinfo";
 		type.tag.decl = g_typeinfo_struct_decl;
-		init_typestack (typestack);
+		init_typestack (typestack, typestack->is_sizeof_context);
 		push_typestack (typestack, &type);
 		typestack->value = ValueCategory (lvalue);
 	} else if (expr->type == ExprType (string)) {
-		init_typestack (typestack);
+		init_typestack (typestack, typestack->is_sizeof_context);
 		push_const_char_pointer_to_typestack (typestack);
 		typestack->value = ValueCategory (rvalue);
 	} else if (expr->type == ExprType (macrocall)) {
 		struct decl	*decl;
 
-		init_typestack (typestack);
+		init_typestack (typestack, typestack->is_sizeof_context);
 		Assert (expr->macrocall.instance);
 		decl = get_decl (unit, expr->macrocall.instance);
 		Assert (decl->type);
 		push_typestack_recursive (unit, unit, typestack, decl->type);
 	} else if (expr->type == ExprType (enum)) {
-		init_typestack (typestack);
+		init_typestack (typestack, typestack->is_sizeof_context);
 		/* todo: get basictype from enum constant */
 		push_basictype_to_typestack (typestack, BasicType (int), 0);
 		typestack->value = ValueCategory (rvalue);
@@ -446,13 +488,13 @@ void	update_typestack (struct unit *unit, struct expr *expr, struct typestack *t
 			}
 			decl = get_decl (decl_unit, expr->table.decl);
 			Assert (decl->type);
-			init_typestack (typestack);
+			init_typestack (typestack, typestack->is_sizeof_context);
 			push_typestack_recursive (unit, decl_unit, typestack, decl->type);
 			Assert (get_typestack_head (typestack));
 			push_pointer_type_to_typestack (typestack, 0);
 			typestack->value = ValueCategory (rvalue);
 		} else {
-			init_typestack (typestack);
+			init_typestack (typestack, typestack->is_sizeof_context);
 			push_const_char_pointer_to_typestack (typestack);
 			push_pointer_type_to_typestack (typestack, 0);
 			typestack->value = ValueCategory (rvalue);
@@ -476,7 +518,7 @@ void	update_typestack_recursive (struct unit *unit, uint expr_index, struct type
 			struct typestack	rightstack = {0};
 
 			update_typestack_recursive (unit, expr->op.backward, typestack);
-			init_typestack (&rightstack);
+			init_typestack (&rightstack, 0);
 			update_typestack_recursive (unit, expr->op.forward, &rightstack);
 			update_typestack (unit, expr, typestack, &rightstack);
 		}
@@ -485,7 +527,7 @@ void	update_typestack_recursive (struct unit *unit, uint expr_index, struct type
 	}
 }
 
-int		is_typestacks_compatible (struct typestack *leftstack, struct typestack *rightstack, int is_void_acceptable) {
+int		is_typestacks_compatible (struct typestack *leftstack, struct typestack *rightstack) {
 	int		result;
 	struct type	*left, *right;
 
@@ -495,10 +537,10 @@ int		is_typestacks_compatible (struct typestack *leftstack, struct typestack *ri
 	Assert (right);
 	if (left->kind == right->kind) {
 		if (left->kind == TypeKind (basic)) {
-			if (left->basic.type != BasicType (void) && right->basic.type != BasicType (void)) {
-				result = 1;
+			if (right->basic.type == BasicType (void)) {
+				result = (left->basic.type == BasicType (void));
 			} else {
-				result = is_void_acceptable;
+				result = 1;
 			}
 		} else if (left->kind == TypeKind (tag)) {
 			Assert (left->tag.decl);
@@ -510,25 +552,35 @@ int		is_typestacks_compatible (struct typestack *leftstack, struct typestack *ri
 			}
 		} else if (left->kind == TypeKind (mod)) {
 			if (left->mod.kind == right->mod.kind) {
-				struct type	lefttype, righttype;
+				if (left->mod.kind == TypeMod (pointer) && get_typestack_type (leftstack, left->mod.forward)->kind == TypeKind (basic) && get_typestack_type (leftstack, left->mod.forward)->basic.type == BasicType (void)) {
+					result = 1;
+				} else {
+					struct type	lefttype, righttype;
 
-				lefttype = *left;
-				righttype = *right;
-				pop_typestack (leftstack);
-				pop_typestack (rightstack);
-				result = is_typestacks_compatible (leftstack, rightstack, lefttype.mod.kind == TypeMod (pointer));
-				push_typestack (rightstack, &righttype);
-				push_typestack (leftstack, &lefttype);
-				/* todo: compare function parameters */
+					lefttype = *left;
+					righttype = *right;
+					pop_typestack (leftstack);
+					pop_typestack (rightstack);
+					result = is_typestacks_compatible (leftstack, rightstack);
+					push_typestack (rightstack, &righttype);
+					push_typestack (leftstack, &lefttype);
+					/* todo: compare function parameters */
+				}
+			} else {
+				result = 0;
+			}
+		} else if (left->kind == TypeKind (opaque)) {
+			if (left->opaque.decl == right->opaque.decl) {
+				result = 1;
 			} else {
 				result = 0;
 			}
 		} else {
 			result = 0;
 		}
-	} else if ((left->kind == TypeKind (basic) && left->basic.type == BasicType (void)) || (right->kind == TypeKind (basic) && right->basic.type == BasicType (void))) {
-		result = is_void_acceptable;
 	} else if (left->kind == TypeKind (mod) && left->mod.kind == TypeMod (pointer) && right->kind == TypeKind (basic) && is_basictype_integral (right->basic.type)) {
+		result = 1;
+	} else if (left->kind == TypeKind (tag) && left->tag.type == TagType (enum) && right->kind == TypeKind (basic) && right->basic.type == BasicType (int)) {
 		result = 1;
 	} else {
 		result = 0;

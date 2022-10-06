@@ -67,8 +67,7 @@ enum tagtype {
 struct scope {
 	kind			enum scopekind;
 	tagtype			enum tagtype;
-	parent_scope	int;
-	param_scope		int;
+	parent_scope, param_scope	int;
 	type_index		int;
 	decl_begin		int;
 	decl_last		int;
@@ -76,7 +75,7 @@ struct scope {
 	flow_last		int;
 }
 
-array_struct struct scope[3] {
+array_struct struct scope[] {
 	{ 1; }
 }
 
@@ -87,9 +86,9 @@ print_struct void (ptr *void, typeinfo *const struct typeinfo) {
 
 #type HINSTANCE usize;
 
-//#macro Nested_Assert () {
-//	Assert;
-//}
+#macro Nested_Assert () {
+	Assert;
+}
 
 const Pi = 3.14;
 
@@ -104,9 +103,9 @@ const Hello2 = Hello;
 
 /*
 #macro Get_Pointer_Size () {
-	constif __Is_Flag (build32) {
+	static_if __Is_Flag (build32) {
 
-	} else constif __Is_Platform (windows) {
+	} else static_if __Is_Platform (windows) {
 
 	}
 }
@@ -129,27 +128,34 @@ enum server_error (message *const char, message_ru *const char) {
 
 #funcprefix main "__cdecl";
 main int (argc int, argv (*char)[]) {
-	var index			int;
-	var member			*const struct typemember;
-	var pi				float;
-	var instance		HINSTANCE;
+	index			int;
+	member			*const struct typemember;
+	pi				float;
+	instance		HINSTANCE;
 	alias hello_members	[enum hello].members;
+	arr				int[3][2];
+	arr2			(typeof arr)[3];
+	var ptr			*int;
 
 	Error ("Hello %s", "World");
+	argc = TypeQualifier (const2);
 	instance = 0;
+	assert __Value_Property (typekind, index) != TypeKind (basic);
 	pi = Pi;
 //	Nested_Assert () (1 != 1);
 	Assert2 (1 == 1);
-	constif 0 {
+	static_if 0 {
 		index = 0;
 	} else {
 		index = 1;
 	}
 	printf ("index: %d\n", index);
-	printf ("option (test): %d", __Option (test));
-	printf ("flag (unit_index): %d", __Flag (unit_index));
-	printf ("is windows: %d", __Platform (windows));
-	printf ("is linux: %d", __Platform (linux));
+	printf ("option (test): %d\n", __Option (test));
+	printf ("flag (unit_index): %d\n", __Flag (unit_index));
+	printf ("is windows: %d\n", __Platform (windows));
+	printf ("is linux: %d\n", __Platform (linux));
+	printf ("sizeof int[3]: %zu\n", sizeof arr);
+	printf ("alignof int[3]: %zu\n", alignof arr);
 	member = hello_members;
 	while is_member (member) {
 		printf ("member: %s\n", member->name);

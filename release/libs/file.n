@@ -1,0 +1,50 @@
+
+#manifest {
+	libs {
+		"@cstd.n";
+		"@basiclog.n";
+	}
+	expose all;
+}
+
+_read_entire_file	(*char) (filename *const char, psize *usize, mode *const char) {
+	var file	*FILE;
+	var size	usize;
+
+	file = fopen (filename, mode);
+	if file {
+		fseek (file, 0, SEEK_END);
+		size = ftell (file);
+		fseek (file, 0, SEEK_SET);
+		result = malloc (size + 1);
+		if result {
+			var readed	usize;
+
+			readed = fread (result, 1, size, file);
+			if !ferror (file) {
+				if psize {
+					*psize = size;
+				}
+				result[readed] = 0;
+			} else {
+				Error ("cannot read entire file. readed: %zu, size: %zu", readed, size);
+				free (result);
+				result = 0;
+			}
+		} else {
+			Error ("cannot allocate memory");
+		}
+		fclose (file);
+	} else {
+		Error ("cannot open file %s", filename);
+		result = 0;
+	}
+}
+
+read_entire_text_file	(*char) (filename *const char, psize *usize) {
+	result = _read_entire_file (filename, psize, "r");
+}
+
+read_entire_binary_file	(*char) (filename *const char, psize *usize) {
+	result = _read_entire_file (filename, psize, "rb");
+}

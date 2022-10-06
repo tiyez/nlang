@@ -13,48 +13,22 @@ int		eval_enum_value (struct unit *unit, uint decl_index, uint enum_index, struc
 	int				result;
 	struct decl		*decl;
 	struct scope	*scope;
-	int				overindex = 0;
-	uint			overexpr = 0;
+	int				index;
 
+	index = 0;
 	decl = get_decl (unit, decl_index);
 	Assert (decl->kind == DeclKind (tag));
 	Assert (decl->tag.type == TagType (enum));
 	scope = get_scope (unit, decl->tag.scope);
 	decl_index = scope->decl_begin;
 	while (decl_index && decl_index != enum_index) {
-		struct decl	*decl;
-
-		decl = get_decl (unit, decl_index);
-		if (decl->enumt.expr) {
-			overindex = 0;
-			overexpr = decl->enumt.expr;
-		} else {
-			overindex += 1;
-		}
-		decl_index = decl->next;
+		index += 1;
+		decl_index = get_decl (unit, decl_index)->next;
 	}
-	if (overexpr) {
-		if (eval_const_expr (unit, overexpr, out)) {
-			if (out->type == EvalType (basic) && is_basictype_integral (out->basic)) {
-				if (is_basictype_signed (out->basic)) {
-					out->value += overindex;
-				} else {
-					out->uvalue += overindex;
-				}
-				result = 1;
-			} else {
-				Error ("non-integral enum value");
-				result = 0;
-			}
-		} else {
-			result = 0;
-		}
-	} else {
-		out->type = EvalType (basic);
-		out->basic = BasicType (int);
-		out->value = overindex;
-		result = 1;
-	}
+	out->type = EvalType (basic);
+	out->basic = BasicType (int);
+	out->value = index;
+	result = 1;
 	return (result);
 }
 
@@ -117,7 +91,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							typemember_index = ptrvalue->typemember_index;
 							index = intvalue->value;
 							typemember_index += index;
-							if (Is_Bucket_Index_Valid (unit->typemembers, typemember_index)) {
+							if (Is_Bucket_Index_Valid (unit->buckets->typemembers, typemember_index)) {
 								out->type = EvalType (typemember);
 								out->typemember_index = typemember_index;
 								result = 1;
@@ -132,7 +106,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							typeinfo_index = ptrvalue->typeinfo_index;
 							index = intvalue->value;
 							typeinfo_index += index;
-							if (Is_Bucket_Index_Valid (unit->typeinfos, typeinfo_index)) {
+							if (Is_Bucket_Index_Valid (unit->buckets->typeinfos, typeinfo_index)) {
 								out->type = EvalType (typeinfo);
 								out->typeinfo_index = typeinfo_index;
 								result = 1;
@@ -174,31 +148,39 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							out->type = EvalType (basic);
 							out->basic = BasicType (usize);
 							out->uvalue = get_typeinfo (unit, typeinfo_index)->size;
+							result = 1;
 						} else if (0 == strcmp (iden_expr->iden.name, "count")) {
 							out->type = EvalType (basic);
 							out->basic = BasicType (int);
 							out->value = get_typeinfo (unit, typeinfo_index)->count;
+							result = 1;
 						} else if (0 == strcmp (iden_expr->iden.name, "qualifiers")) {
 							out->type = EvalType (basic);
 							out->basic = BasicType (int);
 							out->value = get_typeinfo (unit, typeinfo_index)->qualifiers;
+							result = 1;
 						} else if (0 == strcmp (iden_expr->iden.name, "kind")) {
 							out->type = EvalType (basic);
 							out->basic = BasicType (int);
 							out->value = get_typeinfo (unit, typeinfo_index)->kind;
+							result = 1;
 						} else if (0 == strcmp (iden_expr->iden.name, "basic")) {
 							out->type = EvalType (basic);
 							out->basic = BasicType (int);
 							out->value = get_typeinfo (unit, typeinfo_index)->basic;
+							result = 1;
 						} else if (0 == strcmp (iden_expr->iden.name, "tagname")) {
 							out->type = EvalType (string);
 							out->string = get_typeinfo (unit, typeinfo_index)->tagname;
+							result = 1;
 						} else if (0 == strcmp (iden_expr->iden.name, "type")) {
 							out->type = EvalType (typeinfo_pointer);
 							out->typeinfo_index = get_typeinfo (unit, typeinfo_index)->typeinfo;
+							result = 1;
 						} else if (0 == strcmp (iden_expr->iden.name, "members")) {
 							out->type = EvalType (typemember_pointer);
 							out->typemember_index = get_typeinfo (unit, typeinfo_index)->members;
+							result = 1;
 						} else {
 							Error ("struct typeinfo doesn't contain '%s' member", iden_expr->iden.name);
 							result = 0;
@@ -210,6 +192,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 						if (0 == strcmp (iden_expr->iden.name, "name")) {
 							out->type = EvalType (string);
 							out->string = get_typemember (unit, typemember_index)->name;
+							result = 1;
 						} else if (0 == strcmp (iden_expr->iden.name, "type")) {
 							if (get_typemember (unit, typemember_index)->name) {
 								out->type = EvalType (typeinfo_pointer);
@@ -218,6 +201,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 								out->type = EvalType (typeinfo_pointer);
 								out->typeinfo_index = 0;
 							}
+							result = 1;
 						} else if (0 == strcmp (iden_expr->iden.name, "members")) {
 							if (get_typemember (unit, typemember_index)->name) {
 								out->type = EvalType (typemember_pointer);
@@ -226,14 +210,17 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 								out->type = EvalType (typemember_pointer);
 								out->typemember_index = get_typemember (unit, typemember_index)->typeinfo;
 							}
+							result = 1;
 						} else if (0 == strcmp (iden_expr->iden.name, "value")) {
 							out->type = EvalType (basic);
 							out->basic = BasicType (int);
 							out->value = get_typemember (unit, typemember_index)->value;
+							result = 1;
 						} else if (0 == strcmp (iden_expr->iden.name, "offset")) {
 							out->type = EvalType (basic);
 							out->basic = BasicType (int);
 							out->value = get_typemember (unit, typemember_index)->offset;
+							result = 1;
 						} else {
 							Error ("struct typemember doesn't contain '%s' member", iden_expr->iden.name);
 							result = 0;
@@ -297,10 +284,12 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 					out->type = EvalType (basic);
 					out->basic = BasicType (int);
 					out->value = value;
+					result = 1;
 				} else if (is_evaltype_pointer (out->type)) {
 					out->type = EvalType (basic);
 					out->basic = BasicType (int);
 					out->value = 0;
+					result = 1;
 				} else {
 					Error ("invalid operand for !_ operator");
 					result = 0;
@@ -375,9 +364,11 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 						if (is_basictype_integral (out->basic)) {
 							if (is_basictype_integral (cast_to)) {
 								out->basic = cast_to;
+								result = 1;
 							} else if (is_basictype_float (cast_to)) {
 								out->basic = cast_to;
 								out->fvalue = out->value;
+								result = 1;
 							} else {
 								Error ("invalid basic type");
 								result = 0;
@@ -386,8 +377,10 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_integral (cast_to)) {
 								out->basic = cast_to;
 								out->value = out->fvalue;
+								result = 1;
 							} else if (is_basictype_float (cast_to)) {
 								out->basic = cast_to;
+								result = 1;
 							} else {
 								Error ("invalid basic type");
 								result = 0;
@@ -420,12 +413,15 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->value *= evalright.value;
 								out->basic = Max (out->basic, evalright.basic);
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->value *= evalright.uvalue;
 								out->basic = evalright.basic > out->basic ? get_basictype_counterpart (evalright.basic) : out->basic;
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								out->fvalue = out->value * evalright.fvalue;
 								out->basic = get_basictype_size (out->basic) < get_basictype_size (evalright.basic) ? evalright.basic : BasicType (double);
+								result = 1;
 							} else {
 								Error ("invalid basic type");
 								result = 0;
@@ -434,12 +430,15 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->value *= evalright.value;
 								out->basic = evalright.basic > out->basic ? evalright.basic : get_basictype_counterpart (out->basic);
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->uvalue *= evalright.uvalue;
 								out->basic = Max (out->basic, evalright.basic);
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								out->fvalue = out->uvalue * evalright.fvalue;
 								out->basic = get_basictype_size (out->basic) < get_basictype_size (evalright.basic) ? evalright.basic : BasicType (double);
+								result = 1;
 							} else {
 								Error ("invalid basic type");
 								result = 0;
@@ -448,12 +447,15 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->fvalue *= evalright.value;
 								out->basic = get_basictype_size (out->basic) < get_basictype_size (evalright.basic) ? BasicType (double) : out->basic;
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->fvalue *= evalright.uvalue;
 								out->basic = get_basictype_size (out->basic) < get_basictype_size (evalright.basic) ? BasicType (double) : out->basic;
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								out->fvalue = out->fvalue * evalright.fvalue;
 								out->basic = get_basictype_size (out->basic) < get_basictype_size (evalright.basic) ? evalright.basic : out->basic;
+								result = 1;
 							} else {
 								Error ("invalid basic type");
 								result = 0;
@@ -482,12 +484,15 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->value /= evalright.value;
 								out->basic = Max (out->basic, evalright.basic);
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->value /= evalright.uvalue;
 								out->basic = evalright.basic > out->basic ? get_basictype_counterpart (evalright.basic) : out->basic;
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								out->fvalue = out->value / evalright.fvalue;
 								out->basic = get_basictype_size (out->basic) < get_basictype_size (evalright.basic) ? evalright.basic : BasicType (double);
+								result = 1;
 							} else {
 								Error ("invalid basic type");
 								result = 0;
@@ -496,12 +501,15 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->value /= evalright.value;
 								out->basic = evalright.basic > out->basic ? evalright.basic : get_basictype_counterpart (out->basic);
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->uvalue /= evalright.uvalue;
 								out->basic = Max (out->basic, evalright.basic);
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								out->fvalue = out->uvalue / evalright.fvalue;
 								out->basic = get_basictype_size (out->basic) < get_basictype_size (evalright.basic) ? evalright.basic : BasicType (double);
+								result = 1;
 							} else {
 								Error ("invalid basic type");
 								result = 0;
@@ -510,12 +518,15 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->fvalue /= evalright.value;
 								out->basic = get_basictype_size (out->basic) < get_basictype_size (evalright.basic) ? BasicType (double) : out->basic;
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->fvalue /= evalright.uvalue;
 								out->basic = get_basictype_size (out->basic) < get_basictype_size (evalright.basic) ? BasicType (double) : out->basic;
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								out->fvalue = out->fvalue / evalright.fvalue;
 								out->basic = get_basictype_size (out->basic) < get_basictype_size (evalright.basic) ? evalright.basic : out->basic;
+								result = 1;
 							} else {
 								Error ("invalid basic type");
 								result = 0;
@@ -544,9 +555,11 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->value %= evalright.value;
 								out->basic = Max (out->basic, evalright.basic);
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->value %= evalright.uvalue;
 								out->basic = evalright.basic > out->basic ? get_basictype_counterpart (evalright.basic) : out->basic;
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								Error ("_ % _ operator is not defined for floating point values");
 								result = 0;
@@ -558,9 +571,11 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->value *= evalright.value;
 								out->basic = evalright.basic > out->basic ? evalright.basic : get_basictype_counterpart (out->basic);
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->uvalue *= evalright.uvalue;
 								out->basic = Max (out->basic, evalright.basic);
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								Error ("_ % _ operator is not defined for floating point values");
 								result = 0;
@@ -595,12 +610,15 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->value += evalright.value;
 								out->basic = Max (out->basic, evalright.basic);
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->value += evalright.uvalue;
 								out->basic = evalright.basic > out->basic ? get_basictype_counterpart (evalright.basic) : out->basic;
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								out->fvalue = out->value + evalright.fvalue;
 								out->basic = get_basictype_size (out->basic) < get_basictype_size (evalright.basic) ? evalright.basic : BasicType (double);
+								result = 1;
 							} else {
 								Error ("invalid basic type");
 								result = 0;
@@ -609,12 +627,15 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->value += evalright.value;
 								out->basic = evalright.basic > out->basic ? evalright.basic : get_basictype_counterpart (out->basic);
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->uvalue += evalright.uvalue;
 								out->basic = Max (out->basic, evalright.basic);
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								out->fvalue = out->uvalue + evalright.fvalue;
 								out->basic = get_basictype_size (out->basic) < get_basictype_size (evalright.basic) ? evalright.basic : BasicType (double);
+								result = 1;
 							} else {
 								Error ("invalid basic type");
 								result = 0;
@@ -623,12 +644,15 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->fvalue += evalright.value;
 								out->basic = get_basictype_size (out->basic) < get_basictype_size (evalright.basic) ? BasicType (double) : out->basic;
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->fvalue += evalright.uvalue;
 								out->basic = get_basictype_size (out->basic) < get_basictype_size (evalright.basic) ? BasicType (double) : out->basic;
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								out->fvalue = out->fvalue + evalright.fvalue;
 								out->basic = get_basictype_size (out->basic) < get_basictype_size (evalright.basic) ? evalright.basic : out->basic;
+								result = 1;
 							} else {
 								Error ("invalid basic type");
 								result = 0;
@@ -657,12 +681,15 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->value -= evalright.value;
 								out->basic = Max (out->basic, evalright.basic);
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->value -= evalright.uvalue;
 								out->basic = evalright.basic > out->basic ? get_basictype_counterpart (evalright.basic) : out->basic;
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								out->fvalue = out->value - evalright.fvalue;
 								out->basic = get_basictype_size (out->basic) < get_basictype_size (evalright.basic) ? evalright.basic : BasicType (double);
+								result = 1;
 							} else {
 								Error ("invalid basic type");
 								result = 0;
@@ -671,12 +698,15 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->value -= evalright.value;
 								out->basic = evalright.basic > out->basic ? evalright.basic : get_basictype_counterpart (out->basic);
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->uvalue -= evalright.uvalue;
 								out->basic = Max (out->basic, evalright.basic);
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								out->fvalue = out->uvalue - evalright.fvalue;
 								out->basic = get_basictype_size (out->basic) < get_basictype_size (evalright.basic) ? evalright.basic : BasicType (double);
+								result = 1;
 							} else {
 								Error ("invalid basic type");
 								result = 0;
@@ -685,12 +715,15 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->fvalue -= evalright.value;
 								out->basic = get_basictype_size (out->basic) < get_basictype_size (evalright.basic) ? BasicType (double) : out->basic;
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->fvalue -= evalright.uvalue;
 								out->basic = get_basictype_size (out->basic) < get_basictype_size (evalright.basic) ? BasicType (double) : out->basic;
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								out->fvalue = out->fvalue - evalright.fvalue;
 								out->basic = get_basictype_size (out->basic) < get_basictype_size (evalright.basic) ? evalright.basic : out->basic;
+								result = 1;
 							} else {
 								Error ("invalid basic type");
 								result = 0;
@@ -719,9 +752,11 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->value <<= evalright.value;
 								out->basic = Max (out->basic, evalright.basic);
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->value <<= evalright.uvalue;
 								out->basic = evalright.basic > out->basic ? get_basictype_counterpart (evalright.basic) : out->basic;
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								Error ("_ << _ operator is not defined for floating point values");
 								result = 0;
@@ -733,9 +768,11 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->value <<= evalright.value;
 								out->basic = evalright.basic > out->basic ? evalright.basic : get_basictype_counterpart (out->basic);
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->uvalue <<= evalright.uvalue;
 								out->basic = Max (out->basic, evalright.basic);
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								Error ("_ << _ operator is not defined for floating point values");
 								result = 0;
@@ -770,9 +807,11 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->value >>= evalright.value;
 								out->basic = Max (out->basic, evalright.basic);
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->value >>= evalright.uvalue;
 								out->basic = evalright.basic > out->basic ? get_basictype_counterpart (evalright.basic) : out->basic;
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								Error ("_ >> _ operator is not defined for floating point values");
 								result = 0;
@@ -784,9 +823,11 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->value >>= evalright.value;
 								out->basic = evalright.basic > out->basic ? evalright.basic : get_basictype_counterpart (out->basic);
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->uvalue >>= evalright.uvalue;
 								out->basic = Max (out->basic, evalright.basic);
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								Error ("_ >> _ operator is not defined for floating point values");
 								result = 0;
@@ -820,6 +861,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 						if (is_basictype_signed (out->basic)) {
 							int		value;
 
+							result = 1;
 							if (is_basictype_signed (evalright.basic)) {
 								value = out->value < evalright.value;
 							} else if (is_basictype_unsigned (evalright.basic)) {
@@ -835,6 +877,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 						} else if (is_basictype_unsigned (out->basic)) {
 							int		value;
 
+							result = 1;
 							if (is_basictype_signed (evalright.basic)) {
 								value = out->uvalue < evalright.value;
 							} else if (is_basictype_unsigned (evalright.basic)) {
@@ -850,6 +893,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 						} else if (is_basictype_float (out->basic)) {
 							int		value;
 
+							result = 1;
 							if (is_basictype_signed (evalright.basic)) {
 								value = out->fvalue < evalright.value;
 							} else if (is_basictype_unsigned (evalright.basic)) {
@@ -885,6 +929,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 						if (is_basictype_signed (out->basic)) {
 							int		value;
 
+							result = 1;
 							if (is_basictype_signed (evalright.basic)) {
 								value = out->value > evalright.value;
 							} else if (is_basictype_unsigned (evalright.basic)) {
@@ -900,6 +945,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 						} else if (is_basictype_unsigned (out->basic)) {
 							int		value;
 
+							result = 1;
 							if (is_basictype_signed (evalright.basic)) {
 								value = out->uvalue > evalright.value;
 							} else if (is_basictype_unsigned (evalright.basic)) {
@@ -915,6 +961,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 						} else if (is_basictype_float (out->basic)) {
 							int		value;
 
+							result = 1;
 							if (is_basictype_signed (evalright.basic)) {
 								value = out->fvalue > evalright.value;
 							} else if (is_basictype_unsigned (evalright.basic)) {
@@ -950,6 +997,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 						if (is_basictype_signed (out->basic)) {
 							int		value;
 
+							result = 1;
 							if (is_basictype_signed (evalright.basic)) {
 								value = out->value <= evalright.value;
 							} else if (is_basictype_unsigned (evalright.basic)) {
@@ -965,6 +1013,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 						} else if (is_basictype_unsigned (out->basic)) {
 							int		value;
 
+							result = 1;
 							if (is_basictype_signed (evalright.basic)) {
 								value = out->uvalue <= evalright.value;
 							} else if (is_basictype_unsigned (evalright.basic)) {
@@ -980,6 +1029,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 						} else if (is_basictype_float (out->basic)) {
 							int		value;
 
+							result = 1;
 							if (is_basictype_signed (evalright.basic)) {
 								value = out->fvalue <= evalright.value;
 							} else if (is_basictype_unsigned (evalright.basic)) {
@@ -1015,6 +1065,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 						if (is_basictype_signed (out->basic)) {
 							int		value;
 
+							result = 1;
 							if (is_basictype_signed (evalright.basic)) {
 								value = out->value >= evalright.value;
 							} else if (is_basictype_unsigned (evalright.basic)) {
@@ -1030,6 +1081,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 						} else if (is_basictype_unsigned (out->basic)) {
 							int		value;
 
+							result = 1;
 							if (is_basictype_signed (evalright.basic)) {
 								value = out->uvalue >= evalright.value;
 							} else if (is_basictype_unsigned (evalright.basic)) {
@@ -1045,6 +1097,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 						} else if (is_basictype_float (out->basic)) {
 							int		value;
 
+							result = 1;
 							if (is_basictype_signed (evalright.basic)) {
 								value = out->fvalue >= evalright.value;
 							} else if (is_basictype_unsigned (evalright.basic)) {
@@ -1080,6 +1133,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 						if (is_basictype_signed (out->basic)) {
 							int		value;
 
+							result = 1;
 							if (is_basictype_signed (evalright.basic)) {
 								value = out->value == evalright.value;
 							} else if (is_basictype_unsigned (evalright.basic)) {
@@ -1095,6 +1149,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 						} else if (is_basictype_unsigned (out->basic)) {
 							int		value;
 
+							result = 1;
 							if (is_basictype_signed (evalright.basic)) {
 								value = out->uvalue == evalright.value;
 							} else if (is_basictype_unsigned (evalright.basic)) {
@@ -1110,6 +1165,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 						} else if (is_basictype_float (out->basic)) {
 							int		value;
 
+							result = 1;
 							if (is_basictype_signed (evalright.basic)) {
 								value = out->fvalue == evalright.value;
 							} else if (is_basictype_unsigned (evalright.basic)) {
@@ -1145,6 +1201,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 						if (is_basictype_signed (out->basic)) {
 							int		value;
 
+							result = 1;
 							if (is_basictype_signed (evalright.basic)) {
 								value = out->value != evalright.value;
 							} else if (is_basictype_unsigned (evalright.basic)) {
@@ -1160,6 +1217,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 						} else if (is_basictype_unsigned (out->basic)) {
 							int		value;
 
+							result = 1;
 							if (is_basictype_signed (evalright.basic)) {
 								value = out->uvalue != evalright.value;
 							} else if (is_basictype_unsigned (evalright.basic)) {
@@ -1175,6 +1233,7 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 						} else if (is_basictype_float (out->basic)) {
 							int		value;
 
+							result = 1;
 							if (is_basictype_signed (evalright.basic)) {
 								value = out->fvalue != evalright.value;
 							} else if (is_basictype_unsigned (evalright.basic)) {
@@ -1211,9 +1270,11 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->value &= evalright.value;
 								out->basic = Max (out->basic, evalright.basic);
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->value &= evalright.uvalue;
 								out->basic = evalright.basic > out->basic ? get_basictype_counterpart (evalright.basic) : out->basic;
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								Error ("_ & _ operator is not defined for floating point values");
 								result = 0;
@@ -1225,9 +1286,11 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->value &= evalright.value;
 								out->basic = evalright.basic > out->basic ? evalright.basic : get_basictype_counterpart (out->basic);
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->uvalue &= evalright.uvalue;
 								out->basic = Max (out->basic, evalright.basic);
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								Error ("_ & _ operator is not defined for floating point values");
 								result = 0;
@@ -1262,9 +1325,11 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->value ^= evalright.value;
 								out->basic = Max (out->basic, evalright.basic);
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->value ^= evalright.uvalue;
 								out->basic = evalright.basic > out->basic ? get_basictype_counterpart (evalright.basic) : out->basic;
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								Error ("_ ^ _ operator is not defined for floating point values");
 								result = 0;
@@ -1276,9 +1341,11 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->value ^= evalright.value;
 								out->basic = evalright.basic > out->basic ? evalright.basic : get_basictype_counterpart (out->basic);
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->uvalue ^= evalright.uvalue;
 								out->basic = Max (out->basic, evalright.basic);
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								Error ("_ ^ _ operator is not defined for floating point values");
 								result = 0;
@@ -1313,9 +1380,11 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->value |= evalright.value;
 								out->basic = Max (out->basic, evalright.basic);
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->value |= evalright.uvalue;
 								out->basic = evalright.basic > out->basic ? get_basictype_counterpart (evalright.basic) : out->basic;
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								Error ("_ | _ operator is not defined for floating point values");
 								result = 0;
@@ -1327,9 +1396,11 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 							if (is_basictype_signed (evalright.basic)) {
 								out->value |= evalright.value;
 								out->basic = evalright.basic > out->basic ? evalright.basic : get_basictype_counterpart (out->basic);
+								result = 1;
 							} else if (is_basictype_unsigned (evalright.basic)) {
 								out->uvalue |= evalright.uvalue;
 								out->basic = Max (out->basic, evalright.basic);
+								result = 1;
 							} else if (is_basictype_float (evalright.basic)) {
 								Error ("_ | _ operator is not defined for floating point values");
 								result = 0;
@@ -1355,7 +1426,74 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 				result = 0;
 			}
 		} else if (expr->op.type == OpType (logical_and) || expr->op.type == OpType (logical_or)) {
-			Todo ();
+			if (eval_expr (unit, expr->op.backward, out)) {
+				struct evalvalue	evalright = {0};
+				int					is_true;
+
+				if (out->type == EvalType (basic)) {
+					if (is_basictype_integral (out->basic)) {
+						is_true = !!out->uvalue;
+						result = 1;
+					} else {
+						Error ("_ %s _ operator is not defined for floating point values", expr->op.type == OpType (logical_and) ? "&&" : "||");
+						result = 0;
+					}
+				} else if (out->type == EvalType (string)) {
+					is_true = !!out->string;
+					result = 1;
+				} else if (out->type == EvalType (typeinfo_pointer)) {
+					is_true = !!out->typeinfo_index;
+					result = 1;
+				} else if (out->type == EvalType (typemember_pointer)) {
+					is_true = !!out->typemember_index;
+					result = 1;
+				} else {
+					Error ("_ %s _ operator allows only basic types", expr->op.type == OpType (logical_and) ? "&&" : "||");
+					result = 0;
+				}
+				if (result) {
+					if ((expr->op.type == OpType (logical_and) && is_true) || (expr->op.type == OpType (logical_or) && !is_true)) {
+						if (eval_expr (unit, expr->op.forward, &evalright)) {
+							if (evalright.type == EvalType (basic)) {
+								if (is_basictype_integral (evalright.basic)) {
+									is_true = !!evalright.uvalue;
+									result = 1;
+								} else {
+									Error ("_ %s _ operator is not defined for floating point values", expr->op.type == OpType (logical_and) ? "&&" : "||");
+									result = 0;
+								}
+							} else if (evalright.type == EvalType (string)) {
+								is_true = !!evalright.string;
+								result = 1;
+							} else if (evalright.type == EvalType (typeinfo_pointer)) {
+								is_true = !!evalright.typeinfo_index;
+								result = 1;
+							} else if (evalright.type == EvalType (typemember_pointer)) {
+								is_true = !!evalright.typemember_index;
+								result = 1;
+							} else {
+								Error ("_ %s _ operator allows only basic types", expr->op.type == OpType (logical_and) ? "&&" : "||");
+								result = 0;
+							}
+							if (result) {
+								out->type = EvalType (basic);
+								out->basic = BasicType (int);
+								out->value = is_true;
+								result = 1;
+							}
+						} else {
+							result = 0;
+						}
+					} else {
+						out->type = EvalType (basic);
+						out->basic = BasicType (int);
+						out->value = is_true;
+						result = 1;
+					}
+				}
+			} else {
+				result = 0;
+			}
 		} else {
 			Error ("assignment is forbidden in constant expressions");
 			result = 0;
@@ -1389,6 +1527,41 @@ int		eval_expr (struct unit *unit, uint expr_index, struct evalvalue *out) {
 		out->type = EvalType (typeinfo);
 		Assert (expr->typeinfo.index);
 		out->typeinfo_index = expr->typeinfo.index;
+		result = 1;
+	} else if (expr->type == ExprType (enum)) {
+		struct decl	*enum_decl;
+		struct decl	*constant_decl;
+		struct unit	*decl_unit;
+		struct scope	*scope;
+		uint		last_expr;
+		uint		decl_index;
+		uint		offset;
+
+		if (expr->enumt.lib_index) {
+			decl_unit = get_lib (expr->enumt.lib_index);
+		} else {
+			decl_unit = unit;
+		}
+		enum_decl = get_decl (decl_unit, expr->enumt.enum_decl);
+		constant_decl = get_decl (decl_unit, expr->enumt.decl);
+		Assert (enum_decl->kind == DeclKind (tag));
+		Assert (enum_decl->tag.scope);
+		scope = get_scope (decl_unit, enum_decl->tag.scope);
+		last_expr = 0;
+		offset = 0;
+		decl_index = scope->decl_begin;
+		Assert (decl_index);
+		do {
+			if (decl_index == expr->enumt.decl) {
+				decl_index = 0;
+			} else {
+				offset += 1;
+				decl_index = get_decl (decl_unit, decl_index)->next;
+			}
+		} while (decl_index);
+		out->type = EvalType (basic);
+		out->basic = BasicType (int);
+		out->value = offset;
 		result = 1;
 	} else {
 		Unreachable ();

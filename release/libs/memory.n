@@ -1,0 +1,460 @@
+
+#manifest {
+	libs {
+		"@cstd.n";
+		"@basiclog.n";
+	}
+	expose all;
+}
+
+#macro Is_Power_Of_Two (x) {
+	!(x & (x - 1)) && x;
+}
+
+const Memory_Page_Bit = 12;
+const Memory_Page = 1 << Memory_Page_Bit;
+
+to_power_of_two		usize (val usize) {
+	val -= 1;
+	val |= val >> 1;
+	val |= val >> 2;
+	val |= val >> 4;
+	val |= val >> 8;
+	val |= val >> 16;
+	static_if !__Flag (build32)  val |= val >> 32;
+	result = val + 1;
+}
+
+to_page_size	usize (val usize) {
+	result = (val + Memory_Page - 1) & ~(Memory_Page - 1);
+}
+
+get_aligned_value	usize (value usize, alignment usize) {
+	result = (value + alignment - 1) & ~(alignment - 1);
+}
+
+get_alignment_diff	usize (value usize, alignment usize) {
+	result = ((value + alignment - 1) & ~(alignment - 1)) - value;
+}
+
+expand_array	(*void) (array *void, size *usize) {
+	var new_size	usize;
+
+	if *size {
+		new_size = *size * 2;
+	} else {
+		new_size = Memory_Page;
+	}
+	result = realloc (array, new_size);
+	if result {
+		*size = new_size;
+	} else {
+		Error ("cannot expand array");
+	}
+}
+
+release_array	void (array *void) {
+	free (array);
+}
+
+
+#macro Zero (expr) {
+	static_assert __Value_Property (category, expr) == ValueCategory (lvalue) || __Value_Property (typekind, expr) == TypeKind (array);
+	static_if __Value_Property (typekind, expr) == TypeKind (pointer)
+		expr = 0;
+	else static_if __Value_Property (typekind, expr) == TypeKind (array)
+		memset (expr, 0, sizeof expr);
+	else static_if __Value_Property (typekind, expr) == TypeKind (basic)
+		expr = 0;
+	else
+		memset (&expr, 0, sizeof expr);
+}
+
+#macro Array_Count (expr) {
+	static_assert __Value_Property (typekind, expr) == TypeKind (array);
+	sizeof expr / sizeof expr[0];
+}
+
+
+
+/*
+	array format:
+	(usize) capacity
+	(usize) count
+	(capacity bytes) content (with nullterm element)
+*/
+
+#macro Get_Array_Count_ (acc) {
+	([*usize] acc)[-1];
+}
+#macro Get_Array_Capacity_ (acc) {
+	([*usize] acc)[-2];
+}
+#macro Get_Array_End_ (acc) {
+	acc + Get_Array_Count_ (acc);
+}
+#macro Get_Array_End_Sized_ (acc, elsize) {
+	[*void] ([*byte] acc + elsize * Get_Array_Count (acc));
+}
+#macro Get_Array_Last_ (acc) {
+	acc + Get_Array_Count_ (acc) - 1;
+}
+#macro Get_Array_Last_Sized_ (acc, elsize) {
+	[*void] ([*byte] acc + elsize * (Get_Array_Count_ (acc) - 1));
+}
+
+#macro Get_Array_Count (acc) {
+	if acc  Get_Array_Count_ (acc); else 0;
+}
+#macro Get_Array_Capacity (acc) {
+	if acc  Get_Array_Capacity_ (acc); else 0;
+}
+#macro Get_Array_End (acc) {
+	if acc  Get_Array_End_ (acc); else 0;
+}
+#macro Get_Array_End_Sized (acc, elsize) {
+	if acc  Get_Array_End_ (acc, elsize); else 0;
+}
+#macro Get_Array_Last (acc) {
+	if acc && Get_Array_Count_ (acc) > 0  Get_Array_End_ (acc); else 0;
+}
+#macro Get_Array_Last_Sized (acc, elsize) {
+	if acc && Get_Array_Count_ (acc) > 0  Get_Array_Last_Sized_ (acc, elsize); else 0;
+}
+#macro Set_Array_Count (acc, count) {
+	Get_Array_Count (acc) = count;
+}
+#macro Terminate_Array_Sized (acc, elsize) {
+	memset (Get_Array_End_Sized_ (acc, elsize), 0, elsize);
+}
+#macro Terminate_Array (acc) {
+	memset (Get_Array_End_ (acc), 0, sizeof *acc);
+}
+#macro Is_Fit_To_Array_Sized (acc, elsize, tofit) {
+	(Get_Array_Count_ (acc) + tofit + 1) * elsize <= Get_Array_Capacity (acc);
+}
+#macro Is_Fit_To_Array (acc, tofit) {
+	(Get_Array_Count_ (acc) + tofit + 1) * sizeof *acc <= Get_Array_Capacity (acc);
+}
+
+#macro Prepare_Array_Sized (acc, elsize, tofit) {
+	(acc && Is_Fit_To_Array_Sized (acc, elsize, tofit)) || _expand_array ([**void] &acc);
+}
+#macro Prepare_Array (acc, tofit) {
+	(acc && Is_Fit_To_Array (acc, tofit)) || _expand_array ([**void] &acc);
+}
+#macro Free_Array (acc) {
+	if acc  { free ([*usize] acc - 2); 1; } else 1;
+}
+
+#macro Push_Array_Sized (acc, elsize) {
+	memset (Get_Array_End_Sized_ (acc, elsize), 0, elsize);
+	Get_Array_Count_ (acc) += 1;
+	Terminate_Array_Sized (acc, elsize);
+	Get_Array_Last_Sized (acc, elsize);
+}
+#macro Push_Array (acc) {
+	memset (Get_Array_End_ (acc), 0, sizeof *acc);
+	Get_Array_Count_ (acc) += 1;
+	Terminate_Array (acc);
+	Get_Array_Last_ (acc);
+}
+#macro Push_Array_N (acc, count) {
+	memset (Get_Array_End_ (acc), 0, sizeof *acc * count);
+	Get_Array_Count_ (acc) += count;
+	Terminate_Array (acc);
+	Get_Array_End_ (acc) - count;
+}
+#macro Pop_Array (acc) {
+	Get_Array_Count_ (acc) -= 1;
+	Terminate_Array (acc);
+}
+#macro Clear_Array (acc) {
+	if acc  Get_Array_Count_ (acc) = 0; else 0;
+}
+
+#macro Get_Array_Element_Index (acc, element) {
+	element - acc;
+}
+#macro Get_Array_Element_Index_Sized (acc, elsize, element) {
+	([*byte] element - [*byte] acc) / elsize;
+}
+#macro Is_Array_Has_Element_Sized (acc, elsize, elem) {
+	[size] elem >= [size] acc && ([usize] elem - [usize] acc) % elsize == 0 && ([usize] elem - [usize] acc) / elsize < Get_Array_Count_ (acc);
+}
+
+_expand_array	int (pptr **void) {
+	var memory	*void;
+	var cap		usize;
+	var count	usize;
+
+	if *pptr {
+		cap = Get_Array_Capacity_ (*pptr) + sizeof [usize] * 2;
+		count = Get_Array_Count_ (*pptr);
+		memory = expand_array ([*usize] *pptr - 2, &cap);
+	} else {
+		cap = 0;
+		count = 0;
+		memory = expand_array (0, &cap);
+	}
+	if memory {
+		*pptr = [*usize] memory + 2;
+		Get_Array_Capacity_ (*pptr) = cap - sizeof [usize] * 2;
+		Get_Array_Count_ (*pptr) = count;
+		result = 1;
+	} else {
+		Error ("cannot prepare an array");
+		result = 0;
+	}
+}
+
+
+
+// buffer
+
+#macro Init_Buffer (acc) {
+	acc = 0;
+}
+#macro Append_Buffer (acc, data, count) {
+	if Prepare_Array (acc, count) {
+		memcpy (Push_Array_N (acc, count), data, count * sizeof *acc);
+		1;
+	} else {
+		0;
+	}
+}
+#macro Insert_Buffer (acc, offset, data, count) {
+	if Prepare_Array (acc, count) {
+		Push_Array_N (acc, count);
+		memmove (acc + (offset + count), acc + offset, (Get_Array_Count_ (acc) - offset - count + 1) * sizeof *acc);
+		memmove (acc + offset, data, count * sizeof *acc);
+		1;
+	} else {
+		0;
+	}
+}
+#macro Erase_Buffer (acc, offset, count) {
+	memmove (acc + offset, acc + offset + count, (Get_Array_Count_ (acc) - offset - count + 1) * sizeof *acc);
+	Get_Array_Count_ (acc) -= count;
+	1;
+}
+
+
+
+
+
+/*
+	Bucket it's a array of pointers to not growable arrays;
+	Bucket guarantees that elements will never be moved (only pointers to arrays are movable);
+	Each array has capacity configured by first Prepare_Array and never changes after.
+*/
+
+_prepare_bucket		int (pptr ***void, elem_size usize, tofit usize) {
+	var ptr		**void;
+
+	ptr = *pptr;
+	if ptr {
+		var inptr	**void;
+
+		inptr = ptr;
+		while *inptr && Is_Fit_To_Array_Sized (*inptr, elem_size, tofit) {
+			inptr += 1;
+		}
+		if !*inptr {
+			if Prepare_Array (ptr, 1) {
+				inptr = Push_Array (ptr);
+				if Prepare_Array_Sized (*inptr, elem_size, tofit) {
+					result = 1;
+				} else {
+					result = 0;
+				}
+			} else {
+				result = 0;
+			}
+		} else {
+			result = 1;
+		}
+	} else {
+		if Prepare_Array (ptr, 1) {
+			var inptr	**void;
+
+			inptr = Push_Array (ptr);
+			if Prepare_Array_Sized (*inptr, elem_size, tofit) {
+				result = 1;
+			} else {
+				result = 0;
+			}
+		} else {
+			result = 0;
+		}
+	}
+	*pptr = ptr;
+}
+
+#macro Prepare_Bucket (acc, tofit) {
+	_prepare_bucket ([***void] &acc, sizeof **acc, tofit);
+}
+
+_push_bucket_n	(*void) (ptr **void, elem_size usize, num usize) {
+	var inptr	**void;
+
+	assert ptr;
+	inptr = ptr;
+	while *inptr && !Is_Fit_To_Array_Sized (*inptr, elem_size, num) {
+		inptr += 1;
+	}
+	assert *inptr;
+	result = Push_Array_Sized (*inptr, elem_size);
+}
+
+#macro Push_Bucket (acc) {
+	[typeof *acc] _push_bucket_n ([**void] acc, sizeof **acc, 1);
+}
+#macro Push_Bucket_N (acc, num) {
+	[typeof *acc] _push_bucket_n ([**void] acc, sizeof **acc, num);
+}
+
+_get_bucket_elem_index	uint (ptr **void, elem_size usize, elem *void) {
+	var inptr	**void;
+
+	assert ptr;
+	inptr = ptr;
+	while *inptr && !Is_Array_Has_Element_Sized (*inptr, elem_size, elem) {
+		inptr += 1;
+	}
+	assert *inptr;
+	result = (Get_Array_Element_Index (ptr, inptr) << 16) + Get_Array_Element_Index_Sized (*inptr, elem_size, elem) + 1;
+}
+
+#macro Get_Bucket_Element_Index (acc, elem) {
+	_get_bucket_elem_index ([**void] acc, sizeof **acc, [*void] elem);
+}
+#macro Get_Bucket_Element (acc, index) {
+	acc[(index - 1) >> 16] + ((index - 1) & 0xFFFFu);
+}
+
+_is_bucket_index_valid	int (ptr **void, index uint) {
+	if ptr && index {
+		var array_index		uint;
+
+		index -= 1;
+		array_index = index >> 16;
+		if array_index >= 0 && array_index < Get_Array_Count_ (ptr) {
+			var inptr		**void;
+			var elem_index	uint;
+
+			inptr = ptr + array_index;
+			elem_index = index & 0xFFFFu;
+			if *inptr && elem_index >= 0 && elem_index < Get_Array_Count_ (*inptr) {
+				result = 1;
+			} else {
+				result = 0;
+			}
+		} else {
+			result = 0;
+		}
+	} else {
+		result = 0;
+	}
+}
+
+#macro Is_Bucket_Index_Valid (acc, index) {
+	_is_bucket_index_valid ([**void] acc, index);
+}
+
+_get_next_bucket_index	uint (ptr **void, index uint) {
+	var array_index		uint;
+	var elem_index		uint;
+
+	assert index;
+	index -= 1;
+	array_index = index >> 16;
+	elem_index = index & 0xFFFFu;
+	assert ptr;
+	assert array_index >= 0 && array_index < Get_Array_Count_ (ptr);
+	assert ptr[array_index];
+	assert elem_index < Get_Array_Count_ (ptr[array_index]);
+	if elem_index + 1 < Get_Array_Count_ (ptr[array_index]) {
+		result = (array_index << 16) + elem_index + 1 + 1;
+	} else {
+		array_index += 1;
+		while array_index < Get_Array_Count_ (ptr) && !(ptr[array_index] && Get_Array_Count_ (ptr[array_index]) > 0) {
+			array_index += 1;
+		}
+		if array_index < Get_Array_Count_ (ptr) {
+			result = (array_index << 16) + 1;
+		} else {
+			result = 0;
+		}
+	}
+}
+
+#macro Get_Next_Bucket_Index (acc, index) {
+	_get_next_bucket_index ([**void] acc, index);
+}
+
+_get_bucket_count	usize (ptr **void) {
+	result = 0;
+	if ptr {
+		var inptr	**void;
+
+		inptr = ptr;
+		while *inptr {
+			result += Get_Array_Count_ (*inptr);
+			inptr += 1;
+		}
+	}
+}
+
+#macro Get_Bucket_Count (acc) {
+	_get_bucket_count ([**void] acc);
+}
+
+_get_bucket_first_index		uint (ptr **void) {
+	if ptr {
+		var inptr	**void;
+
+		inptr = ptr;
+		while *inptr && Get_Array_Count_ (*inptr) <= 0 {
+			inptr += 1;
+		}
+		if *inptr {
+			result = (Get_Array_Element_Index (ptr, inptr) << 16) + 1;
+		} else {
+			result = 0;
+		}
+	} else {
+		result = 0;
+	}
+}
+
+#macro Get_Bucket_First_Index (acc) {
+	_get_bucket_first_index ([**void] acc);
+}
+
+_get_bucket_ordindex	int (ptr **void, index uint) {
+	if ptr && index {
+		var array_index		uint;
+		var elem_index		uint;
+		var arrindex		int;
+
+		index -= 1;
+		array_index = index >> 16;
+		elem_index = index & 0xFFFFu;
+		assert array_index < Get_Array_Count_ (ptr);
+		assert elem_index < Get_Array_Count_ (ptr[array_index]);
+		result = 0;
+		arrindex = 0;
+		while arrindex < array_index {
+			result += Get_Array_Count_ (ptr[arrindex]);
+			arrindex += 1;
+		}
+		result += elem_index;
+	} else {
+		result = -1;
+	}
+}
+
+#macro Get_Bucket_OrdIndex (acc, index) {
+	_get_bucket_ordindex ([**void] acc, index);
+}

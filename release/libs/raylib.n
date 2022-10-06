@@ -1,0 +1,1363 @@
+
+
+#manifest {
+	libs {
+		"@cstd.n";
+	}
+	cc_includes {
+		raylib_cc_include "@raylib.h";
+	}
+	cc_include_paths {
+		raylib_cc_include_path;
+	}
+	cc_libs {
+		raylib_cc_lib "raylib.lib";
+		"opengl32.lib";
+		"kernel32.lib";
+		"user32.lib";
+		"gdi32.lib";
+		"winmm.lib";
+		"winspool.lib";
+		"comdlg32.lib";
+		"advapi32.lib";
+		"shell32.lib";
+		"ole32.lib";
+		"oleaut32.lib";
+		"uuid.lib";
+		"odbc32.lib";
+		"odbccp32.lib";
+	}
+	cc_libpaths {
+		raylib_cc_libpath;
+	}
+	expose all;
+}
+
+
+
+
+#external struct Vector2 {
+	x	float;
+	y	float;
+}
+#type Vector2 struct Vector2;
+#external struct Vector3 {
+	x	float;
+	y	float;
+	z	float;
+}
+#type Vector3 struct Vector3;
+#external struct Vector4 {
+	x	float;
+	y	float;
+	z	float;
+	w	float;
+}
+#type Vector4 struct Vector4;
+#type Quaternion struct Vector4;
+#external struct Matrix {
+	m0, m4, m8, m12		float;
+	m1, m5, m9, m13		float;
+	m2, m6, m10, m14	float;
+	m3, m7, m11, m15	float;
+}
+#type Matrix struct Matrix;
+#external struct Color {
+	r	byte;
+	g	byte;
+	b	byte;
+	a	byte;
+}
+#type Color struct Color;
+#external struct Rectangle {
+	x		float;
+	y		float;
+	width	float;
+	height	float;
+}
+#type Rectangle struct Rectangle;
+#external struct Image {
+	data		*void;
+	width		int;
+	height		int;
+	mipmaps		int;
+	format		int;
+}
+#type Image struct Image;
+#external struct Texture {
+	id		uint;
+	width	int;
+	height	int;
+	mipmaps	int;
+	format	int;
+}
+#type Texture struct Texture;
+#type Texture2D struct Texture;
+#type TextureCubemap struct Texture;
+#external struct RenderTexture {
+	id		uint;
+	texture	struct Texture;
+	depth	struct Texture;
+}
+#type RenderTexture struct RenderTexture;
+#type RenderTexture2D struct RenderTexture;
+#external struct NPatchInfo {
+	source	Rectangle;
+	left	int;
+	top		int;
+	right	int;
+	bottom	int;
+	layout	int;
+}
+#type NPatchInfo struct NPatchInfo;
+#external struct GlyphInfo {
+	value		int;
+	offsetX		int;
+	offsetY		int;
+	advanceX	int;
+	image		struct Image;
+}
+#type GlyphInfo struct GlyphInfo;
+#external struct Font {
+	baseSize		int;
+	glyphCount		int;
+	glyphPadding	int;
+	texture			Texture2D;
+	recs			*struct Rectangle;
+	glyphs			*GlyphInfo;
+}
+#type Font struct Font;
+#external struct Camera3D {
+	position	struct Vector3;
+	target		struct Vector3;
+	up			struct Vector3;
+	fovy		float;
+	projection	int;
+}
+#type Camera3D struct Camera3D;
+#type Camera struct Camera3D;
+#external struct Camera2D {
+	offset		struct Vector2;
+	target		struct Vector2;
+	rotation	float;
+	zoom		float;
+}
+#type Camera2D struct Camera2D;
+#external struct Mesh {
+	vertexCount		int;
+	triangleCount	int;
+	vertices		*float;
+	texcoords		*float;
+	texcoords2		*float;
+	normals			*float;
+	tangents		*float;
+	colors			*uchar;
+	indices			*ushort;
+    animVertices	*float;
+    animNormals		*float;
+    boneIds			*uchar;
+    boneWeights		*float;
+    vaoId			uint;
+    vboId			*uint;
+}
+#type Mesh struct Mesh;
+#external struct Shader {
+	id		uint;	// Shader program id
+	locs	*int;	// Shader locations array (RL_MAX_SHADER_LOCATIONS)
+}
+#type Shader struct Shader;
+#external struct MaterialMap {
+	texture		Texture2D;	// Material map texture
+	color		Color;		// Material map color
+	value		float;		// Material map value
+}
+#type MaterialMap struct MaterialMap;
+#external struct Material {
+	shader		struct Shader;			// Material shader
+	maps		*struct MaterialMap;	// Material maps array (MAX_MATERIAL_MAPS)
+	params		float[4];				// Material generic parameters (if required)
+}
+#type Material struct Material;
+#external struct Transform {
+	translation		Vector3;
+	rotation		Quaternion;
+	scale			Vector3;
+}
+#type Transform struct Transform;
+#external struct BoneInfo {
+	name	char[32];
+	parent	int;
+}
+#type BoneInfo struct BoneInfo;
+#external struct Model {
+	transform		struct Matrix;		// Local transform matrix
+	meshCount		int;				// Number of meshes
+	materialCount	int;				// Number of materials
+	meshes			*struct Mesh;		// Meshes array
+	materials		*struct Material;	// Materials array
+	meshMaterial	*int;				// Mesh material number
+	boneCount		int;				// Number of bones
+	bones			*struct BoneInfo;	// Bones information (skeleton)
+	bindPose		*struct Transform;	// Bones base transformation (pose)
+}
+#type Model struct Model;
+#external struct ModelAnimation {
+	boneCount	int;				// Number of bones
+	frameCount	int;				// Number of animation frames
+	bones		*struct BoneInfo;	// Bones information (skeleton)
+	framePoses	**struct Transform;	// Poses array by frame
+}
+#type ModelAnimation struct ModelAnimation;
+#external struct Ray {
+    position	struct Vector3;		// Ray position (origin)
+    direction	struct Vector3;		// Ray direction
+}
+#type Ray struct Ray;
+#external struct RayCollision {
+	hit			int;		// Did the ray hit something?
+	distance	float;		// Distance to nearest hit
+	point		Vector3;	// Point of nearest hit
+	normal		Vector3;	// Surface normal of hit
+}
+#type RayCollision struct RayCollision;
+#external struct BoundingBox {
+	min		struct Vector3;
+	max		struct Vector3;
+}
+#type BoundingBox struct BoundingBox;
+#external struct Wave {
+	frameCount	uint;	// Total number of frames (considering channels)
+	sampleRate	uint;	// Frequency (samples per second)
+	sampleSize	uint;	// Bit depth (bits per sample): 8, 16, 32 (24 not supported)
+	channels	uint;	// Number of channels (1-mono, 2-stereo, ...)
+	data		*void;	// Buffer data pointer
+}
+#type Wave struct Wave;
+#opaque rAudioBuffer;
+#opaque rAudioProcessor;
+#external struct AudioStream {
+	buffer		*rAudioBuffer;		// Pointer to internal data used by the audio system
+	processor	*rAudioProcessor;	// Pointer to internal data processor, useful for audio effects
+
+	sampleRate	uint;	// Frequency (samples per second)
+	sampleSize	uint;	// Bit depth (bits per sample): 8, 16, 32 (24 not supported)
+	channels	uint;	// Number of channels (1-mono, 2-stereo, ...)
+}
+#type AudioStream struct AudioStream;
+#external struct Sound {
+	stream		AudioStream;	// Audio stream
+	frameCount	uint;			// Total number of frames (considering channels)
+}
+#type Sound struct Sound;
+#external struct Music {
+	stream		AudioStream;	// Audio stream
+	frameCount	uint;			// Total number of frames (considering channels)
+	looping		int;			// Music looping enable
+	ctxType		int;			// Type of music context (audio filetype)
+	ctxData		*void;			// Audio context data, depends on type
+}
+#type Music struct Music;
+#external struct VrDeviceInfo {
+	hResolution				int;		// Horizontal resolution in pixels
+	vResolution				int;		// Vertical resolution in pixels
+	hScreenSize				float;		// Horizontal size in meters
+	vScreenSize				float;		// Vertical size in meters
+	vScreenCenter			float;		// Screen center in meters
+	eyeToScreenDistance		float;		// Distance between eye and display in meters
+	lensSeparationDistance	float;		// Lens separation distance in meters
+	interpupillaryDistance	float;		// IPD (distance between pupils) in meters
+	lensDistortionValues	float[4];	// Lens distortion constant parameters
+	chromaAbCorrection		float[4];	// Chromatic aberration correction parameters
+}
+#type VrDeviceInfo struct VrDeviceInfo;
+#external struct VrStereoConfig {
+	projection			struct Matrix[2];	// VR projection matrices (per eye)
+	viewOffset			struct Matrix[2];	// VR view offset matrices (per eye)
+	leftLensCenter		float[2];			// VR left lens center
+	rightLensCenter		float[2];			// VR right lens center
+	leftScreenCenter	float[2];			// VR left screen center
+	rightScreenCenter	float[2];			// VR right screen center
+	scale				float[2];			// VR distortion scale
+	scaleIn				float[2];			// VR distortion scale in
+}
+#type VrStereoConfig struct VrStereoConfig;
+#external struct FilePathList {
+	capacity	uint;		// Filepaths max entries
+	count		uint;		// Filepaths entries count
+	paths		**char;		// Filepaths entries
+}
+#type FilePathList struct FilePathList;
+
+//----------------------------------------------------------------------------------
+// Enumerators Definition
+//----------------------------------------------------------------------------------
+// System/Window config flags
+// NOTE: Every bit registers one state (use it with bit masks)
+// By default all flags are set to 0
+enum ConfigFlags (value int) {
+	vsync_hint,					0x00000040;		// Set to try enabling V-Sync on GPU
+	fullscreen_mode,			0x00000002;		// Set to run program in fullscreen
+	window_resizable,			0x00000004;		// Set to allow resizable window
+	window_undecorated,			0x00000008;		// Set to disable window decoration (frame and buttons)
+	window_hidden,				0x00000080;		// Set to hide window
+	window_minimized,			0x00000200;		// Set to minimize window (iconify)
+	window_maximized,			0x00000400;		// Set to maximize window (expanded to monitor)
+	window_unfocused,			0x00000800;		// Set to window non focused
+	window_topmost,				0x00001000;		// Set to window always on top
+	window_always_run,			0x00000100;		// Set to allow windows running while minimized
+	window_transparent,			0x00000010;		// Set to allow transparent framebuffer
+	window_highdpi,				0x00002000;		// Set to support HighDPI
+	window_mouse_passthrough,	0x00004000;		// Set to support mouse passthrough, only supported when FLAG_WINDOW_UNDECORATED
+	msaa_4x_hint,				0x00000020;		// Set to try enabling MSAA 4X
+	interlaced_hint,			0x00010000;		// Set to try enabling interlaced video format (for V3D)
+}
+#accessor ConfigFlags enum ConfigFlags;
+
+// Trace log level
+// NOTE: Organized by priority level
+enum TraceLogLevel {
+	LOG_ALL;		// Display all logs
+	LOG_TRACE;		// Trace logging, intended for internal use only
+	LOG_DEBUG;		// Debug logging, used for internal debugging, it should be disabled on release builds
+	LOG_INFO;		// Info logging, used for program execution info
+	LOG_WARNING;	// Warning logging, used on recoverable failures
+	LOG_ERROR;		// Error logging, used on unrecoverable failures
+	LOG_FATAL;		// Fatal logging, used to abort program: exit(EXIT_FAILURE)
+	LOG_NONE;		// Disable logging
+}
+#type TraceLogLevel enum TraceLogLevel;
+#accessor TraceLogLevel enum TraceLogLevel;
+
+// Keyboard keys (US keyboard layout)
+// NOTE: Use GetKeyPressed() to allow redefining
+// required keys for alternative layouts
+enum KeyboardKey (value int) {
+	null,			0;		// Key: NULL, used for no key pressed
+	// Alphanumeric keys
+	apostrophe,		39;		// Key: '
+	comma,			44;		// Key: ,
+	minus,			45;		// Key: -
+	period,			46;		// Key: .
+	slash,			47;		// Key: /
+	zero,			48;		// Key: 0
+	one,			49;		// Key: 1
+	two,			50;		// Key: 2
+	three,			51;		// Key: 3
+	four,			52;		// Key: 4
+	five,			53;		// Key: 5
+	six,			54;		// Key: 6
+	seven,			55;		// Key: 7
+	eight,			56;		// Key: 8
+	nine,			57;		// Key: 9
+	semicolon,		59;		// Key: ;
+	equal,			61;		// Key: =
+	A,				65;		// Key: A | a
+	B,				66;		// Key: B | b
+	C,				67;		// Key: C | c
+	D,				68;		// Key: D | d
+	E,				69;		// Key: E | e
+	F,				70;		// Key: F | f
+	G,				71;		// Key: G | g
+	H,				72;		// Key: H | h
+	I,				73;		// Key: I | i
+	J,				74;		// Key: J | j
+	K,				75;		// Key: K | k
+	L,				76;		// Key: L | l
+	M,				77;		// Key: M | m
+	N,				78;		// Key: N | n
+	O,				79;		// Key: O | o
+	P,				80;		// Key: P | p
+	Q,				81;		// Key: Q | q
+	R,				82;		// Key: R | r
+	S,				83;		// Key: S | s
+	T,				84;		// Key: T | t
+	U,				85;		// Key: U | u
+	V,				86;		// Key: V | v
+	W,				87;		// Key: W | w
+	X,				88;		// Key: X | x
+	Y,				89;		// Key: Y | y
+	Z,				90;		// Key: Z | z
+	left_bracket,	91;		// Key: [
+	backslash,		92;		// Key: '\'
+	right_bracket,	93;		// Key: ]
+	grave,			96;		// Key: `
+	// Function keys
+	space,			32;		// Key: Space
+	escape,			256;	// Key: Esc
+	enter,			257;	// Key: Enter
+	tag,			258;	// Key: Tab
+	backspace,		259;	// Key: Backspace
+	insert,			260;	// Key: Ins
+	delete,			261;	// Key: Del
+	right,			262;	// Key: Cursor right
+	left,			263;	// Key: Cursor left
+	down,			264;	// Key: Cursor down
+	up,				265;	// Key: Cursor up
+	page_up,		266;	// Key: Page up
+	page_down,		267;	// Key: Page down
+	home,			268;	// Key: Home
+	end,			269;	// Key: End
+	caps_lock,		280;	// Key: Caps lock
+	scroll_lock,	281;	// Key: Scroll down
+	num_lock,		282;	// Key: Num lock
+	print_screen,	283;	// Key: Print screen
+	pause,			284;	// Key: Pause
+	f1,				290;	// Key: F1
+	f2,				291;	// Key: F2
+	f3,				292;	// Key: F3
+	f4,				293;	// Key: F4
+	f5,				294;	// Key: F5
+	f6,				295;	// Key: F6
+	f7,				296;	// Key: F7
+	f8,				297;	// Key: F8
+	f9,				298;	// Key: F9
+	f10,			299;	// Key: F10
+	f11,			300;	// Key: F11
+	f12,			301;	// Key: F12
+	left_shift,		340;	// Key: Shift left
+	left_control,	341;	// Key: Control left
+	left_alt,		342;	// Key: Alt left
+	left_super,		343;	// Key: Super left
+	right_shift,	344;	// Key: Shift right
+	right_control,	345;	// Key: Control right
+	right_alt,		346;	// Key: Alt right
+	right_super,	347;	// Key: Super right
+	kb_menu,		348;	// Key: KB menu
+	// Keypad keys
+	kp_0,			320;	// Key: Keypad 0
+	kp_1,			321;	// Key: Keypad 1
+	kp_2,			322;	// Key: Keypad 2
+	kp_3,			323;	// Key: Keypad 3
+	kp_4,			324;	// Key: Keypad 4
+	kp_5,			325;	// Key: Keypad 5
+	kp_6,			326;	// Key: Keypad 6
+	kp_7,			327;	// Key: Keypad 7
+	kp_8,			328;	// Key: Keypad 8
+	kp_9,			329;	// Key: Keypad 9
+	kp_decimal,		330;	// Key: Keypad .
+	kp_divide,		331;	// Key: Keypad /
+	kp_multiply,	332;	// Key: Keypad *
+	kp_subtract,	333;	// Key: Keypad -
+	kp_add,			334;	// Key: Keypad +
+	kp_enter,		335;	// Key: Keypad Enter
+	kp_equal,		336;	// Key: Keypad =
+	// Android key buttons
+	back,			4;		// Key: Android back button
+	menu,			82;		// Key: Android menu button
+	volume_up,		24;		// Key: Android volume up button
+	volume_down,	25;		// Key: Android volume down button
+}
+#accessor KeyboardKey enum KeyboardKey;
+#type KeyboardKey enum KeyboardKey;
+
+enum MouseButton {
+	left;		// Mouse button left
+	right;		// Mouse button right
+	middle;		// Mouse button middle (pressed wheel)
+	side;		// Mouse button side (advanced mouse device)
+	extra;		// Mouse button extra (advanced mouse device)
+	forward;	// Mouse button forward (advanced mouse device)
+	back;		// Mouse button back (advanced mouse device)
+}
+#accessor MouseButton enum MouseButton;
+#type MouseButton enum MouseButton;
+
+enum MouseCursor {
+	default;		// Default pointer shape
+	arrow;			// Arrow shape
+	ibeam;			// Text writing cursor shape
+	crosshair;		// Cross shape
+	pointing_hand;	// Pointing hand cursor
+	resize_ew;		// Horizontal resize/move arrow shape
+	resize_ns;		// Vertical resize/move arrow shape
+	resize_nwse;	// Top-left to bottom-right diagonal resize/move arrow shape
+	resize_nesw;	// The top-right to bottom-left diagonal resize/move arrow shape
+	resize_all;		// The omni-directional resize/move cursor shape
+	not_allowed;	// The operation-not-allowed shape
+}
+#accessor MouseCursor enum MouseCursor;
+#type MouseCursor enum MouseCursor;
+
+enum GamepadButton {
+	unknown;			// Unknown button, just for error checking
+	left_face_up;		// Gamepad left DPAD up button
+	left_face_right;	// Gamepad left DPAD right button
+	left_face_down;		// Gamepad left DPAD down button
+	left_face_left;		// Gamepad left DPAD left button
+	right_face_up;		// Gamepad right button up (i.e. PS3: Triangle, Xbox: Y)
+	right_face_right;	// Gamepad right button right (i.e. PS3: Square, Xbox: X)
+	right_face_down;	// Gamepad right button down (i.e. PS3: Cross, Xbox: A)
+	right_face_left;	// Gamepad right button left (i.e. PS3: Circle, Xbox: B)
+	left_trigger_1;		// Gamepad top/back trigger left (first), it could be a trailing button
+	left_trigger_2;		// Gamepad top/back trigger left (second), it could be a trailing button
+	right_trigger_1;	// Gamepad top/back trigger right (one), it could be a trailing button
+	right_trigger_2;	// Gamepad top/back trigger right (second), it could be a trailing button
+	middle_left;		// Gamepad center buttons, left one (i.e. PS3: Select)
+	middle;				// Gamepad center buttons, middle one (i.e. PS3: PS, Xbox: XBOX)
+	middle_right;		// Gamepad center buttons, right one (i.e. PS3: Start)
+	left_thumb;			// Gamepad joystick pressed button left
+	right_thumb;		// Gamepad joystick pressed button right
+}
+#accessor GamepadButton enum GamepadButton;
+#type GamepadButton enum GamepadButton;
+
+enum GamepadAxis {
+	left_x;			// Gamepad left stick X axis
+	left_y;			// Gamepad left stick Y axis
+	right_x;		// Gamepad right stick X axis
+	right_y;		// Gamepad right stick Y axis
+	left_trigger;	// Gamepad back trigger left, pressure level: [1..-1]
+	right_trigger;	// Gamepad back trigger right, pressure level: [1..-1]
+}
+#accessor GamepadAxis enum GamepadAxis;
+#type GamepadAxis enum GamepadAxis;
+
+enum MaterialMapIndex {
+	albedo diffuse;			// Albedo material (same as: MATERIAL_MAP_DIFFUSE)
+	metalness specular;		// Metalness material (same as: MATERIAL_MAP_SPECULAR)
+	normal;					// Normal material
+	roughness;				// Roughness material
+	occlusion;				// Ambient occlusion material
+	emission;				// Emission material
+	height;					// Heightmap material
+	cubemap;				// Cubemap material (NOTE: Uses GL_TEXTURE_CUBE_MAP)
+	irradiance;				// Irradiance material (NOTE: Uses GL_TEXTURE_CUBE_MAP)
+	prefilter;				// Prefilter material (NOTE: Uses GL_TEXTURE_CUBE_MAP)
+	brdf;					// Brdf material
+}
+#accessor MaterialMapIndex enum MaterialMapIndex;
+#type MaterialMapIndex enum MaterialMapIndex;
+
+enum ShaderLocationIndex {
+	vertex_position;	// Shader location: vertex attribute: position
+	vertex_texcoord01;	// Shader location: vertex attribute: texcoord01
+	vertex_texcoord02;	// Shader location: vertex attribute: texcoord02
+	vertex_normal;		// Shader location: vertex attribute: normal
+	vertex_tangent;		// Shader location: vertex attribute: tangent
+	vertex_color;		// Shader location: vertex attribute: color
+	matrix_mvp;			// Shader location: matrix uniform: model-view-projection
+	matrix_view;		// Shader location: matrix uniform: view (camera transform)
+	matrix_projection;	// Shader location: matrix uniform: projection
+	matrix_model;		// Shader location: matrix uniform: model (transform)
+	matrix_normal;		// Shader location: matrix uniform: normal
+	vector_view;		// Shader location: vector uniform: view
+	color_diffuse;		// Shader location: vector uniform: diffuse color
+	color_specular;		// Shader location: vector uniform: specular color
+	color_ambient;		// Shader location: vector uniform: ambient color
+	map_albedo map_diffuse;			// Shader location: sampler2d texture: albedo (same as: SHADER_LOC_MAP_DIFFUSE)
+	map_metalness map_specular;		// Shader location: sampler2d texture: metalness (same as: SHADER_LOC_MAP_SPECULAR)
+	map_normal;			// Shader location: sampler2d texture: normal
+	map_roughness;		// Shader location: sampler2d texture: roughness
+	map_occlusion;		// Shader location: sampler2d texture: occlusion
+	map_emission;		// Shader location: sampler2d texture: emission
+	map_height;			// Shader location: sampler2d texture: height
+	map_cubemap;		// Shader location: samplerCube texture: cubemap
+	map_irradiance;		// Shader location: samplerCube texture: irradiance
+	map_prefilter;		// Shader location: samplerCube texture: prefilter
+	map_brdf;			// Shader location: sampler2d texture: brdf
+}
+#accessor ShaderLocationIndex enum ShaderLocationIndex;
+#type ShaderLocationIndex enum ShaderLocationIndex;
+
+enum ShaderUniformDataType {
+	float;		// Shader uniform type: float
+	vec2;		// Shader uniform type: vec2 (2 float)
+	vec3;		// Shader uniform type: vec3 (3 float)
+	vec4;		// Shader uniform type: vec4 (4 float)
+	int;		// Shader uniform type: int
+	ivec2;		// Shader uniform type: ivec2 (2 int)
+	ivec3;		// Shader uniform type: ivec3 (3 int)
+	ivec4;		// Shader uniform type: ivec4 (4 int)
+	sampler2d;	// Shader uniform type: sampler2d
+}
+#accessor ShaderUniformDataType enum ShaderUniformDataType;
+#type ShaderUniformDataType enum ShaderUniformDataType;
+
+enum ShaderAttributeDataType {
+	float;		// Shader attribute type: float
+	vec2;		// Shader attribute type: vec2 (2 float)
+	vec3;		// Shader attribute type: vec3 (3 float)
+	vec4;		// Shader attribute type: vec4 (4 float)
+}
+#accessor ShaderAttributeDataType enum ShaderAttributeDataType;
+#type ShaderAttributeDataType enum ShaderAttributeDataType;
+
+enum PixelFormat {
+	none;
+	grayscale;					// 8 bit per pixel (no alpha)
+	gray_alpha;					// 8*2 bpp (2 channels)
+	r5g6b5;						// 16 bpp
+	r8g8b8;						// 24 bpp
+	r5g5b5a1;					// 16 bpp (1 bit alpha)
+	r4g4b4a4;					// 16 bpp (4 bit alpha)
+	r8g8b8a8;					// 32 bpp
+	r32;						// 32 bpp (1 channel - float)
+	r32g32b32;					// 32*3 bpp (3 channels - float)
+	r32g32b32a32;				// 32*4 bpp (4 channels - float)
+	compressed_dxt1_rgb;		// 4 bpp (no alpha)
+	compressed_dxt1_rgba;		// 4 bpp (1 bit alpha)
+	compressed_dxt3_rgba;		// 8 bpp
+	compressed_dxt5_rgba;		// 8 bpp
+	compressed_etc1_rgb;		// 4 bpp
+	compressed_etc2_rgb;		// 4 bpp
+	compressed_etc2_eac_rgba;	// 8 bpp
+	compressed_pvrt_rgb;		// 4 bpp
+	compressed_pvrt_rgba;		// 4 bpp
+	compressed_astc_4x4_rgba;	// 8 bpp
+	compressed_astc_8x8_rgba;	// 2 bpp
+}
+#accessor PixelFormat enum PixelFormat;
+#type PixelFormat enum PixelFormat;
+
+enum TextureFilter {
+	point;				// No filter, just pixel approximation
+	bilinear;			// Linear filtering
+	trilinear;			// Trilinear filtering (linear with mipmaps)
+	anisotropic_4x;		// Anisotropic filtering 4x
+	anisotropic_8x;		// Anisotropic filtering 8x
+	anisotropic_16x;	// Anisotropic filtering 16x
+}
+#accessor TextureFilter enum TextureFilter;
+#type TextureFilter enum TextureFilter;
+
+enum TextureWrap {
+	repeat;			// Repeats texture in tiled mode
+	clamp;			// Clamps texture to edge pixel in tiled mode
+	mirror_repeat;	// Mirrors and repeats the texture in tiled mode
+	mirror_clamp;	// Mirrors and clamps to border the texture in tiled mode
+}
+#accessor TextureWrap enum TextureWrap;
+#type TextureWrap enum TextureWrap;
+
+enum CubemapLayout {
+	auto_detect;			// Automatically detect layout type
+	line_vertical;			// Layout is defined by a vertical line with faces
+	line_horizontal;		// Layout is defined by an horizontal line with faces
+	cross_three_by_four;	// Layout is defined by a 3x4 cross with cubemap faces
+	cross_four_by_three;	// Layout is defined by a 4x3 cross with cubemap faces
+	panorama;				// Layout is defined by a panorama image (equirectangular map)
+}
+#accessor CubemapLayout enum CubemapLayout;
+#type CubemapLayout enum CubemapLayout;
+
+enum FontType {
+	default;	// Default font generation, anti-aliased
+	bitmap;		// Bitmap font generation, no anti-aliasing
+	sdf;		// SDF font generation, requires external shader
+}
+#accessor FontType enum FontType;
+#type FontType enum FontType;
+
+enum BlendMode {
+	alpha;				// Blend textures considering alpha (default)
+	additive;			// Blend textures adding colors
+	multiplied;			// Blend textures multiplying colors
+	add_colors;			// Blend textures adding colors (alternative)
+	subtract_colors;	// Blend textures subtracting colors (alternative)
+	alpha_premultiply;	// Blend premultiplied textures considering alpha
+	custom;				// Blend textures using custom src/dst factors (use rlSetBlendMode())
+}
+#accessor BlendMode enum BlendMode;
+#type BlendMode enum BlendMode;
+
+enum Gesture (flag int) {
+	none,			0;		// No gesture
+	tap,			1;		// Tap gesture
+	doubletap,		2;		// Double tap gesture
+	hold,			4;		// Hold gesture
+	drag,			8;		// Drag gesture
+	swipe_right,	16;		// Swipe right gesture
+	swipe_left,		32;		// Swipe left gesture
+	swipe_up,		64;		// Swipe up gesture
+	swipe_down,		128;	// Swipe down gesture
+	pinch_in,		256;	// Pinch in gesture
+	pinch_out,		512;	// Pinch out gesture
+}
+#accessor Gesture enum Gesture;
+#type Gesture enum Gesture;
+
+enum CameraMode {
+	custom;			// Custom camera
+	free;			// Free camera
+	orbital;		// Orbital camera
+	first_person;	// First person camera
+	third_person;	// Third person camera
+}
+#accessor CameraMode enum CameraMode;
+#type CameraMode enum CameraMode;
+
+enum CameraProjection {
+	perspective;	// Perspective projection
+	orthographic;	// Orthographic projection
+}
+#accessor CameraProjection enum CameraProjection;
+#type CameraProjection enum CameraProjection;
+
+enum NPatchLayout {
+	nine_patch;					// Npatch layout: 3x3 tiles
+	three_patch_vertical;		// Npatch layout: 1x3 tiles
+	three_patch_horizontal;		// Npatch layout: 3x1 tiles
+}
+#accessor NPatchLayout enum NPatchLayout;
+#type NPatchLayout enum NPatchLayout;
+
+
+// Callbacks to hook some internal functions
+// WARNING: This callbacks are intended for advance users
+#type TraceLogCallback		*void (logLevel int, text *const char, args va_list);			// Logging: Redirect trace log messages
+#type LoadFileDataCallback	*(*uchar) (fileName *const char, bytesRead *uint);				// FileIO: Load binary data
+#type SaveFileDataCallback	*int (fileName *const char, data *void, bytesToWrite uint);		// FileIO: Save binary data
+#type LoadFileTextCallback	*(*char) (fileName *const char);								// FileIO: Load text data
+#type SaveFileTextCallback	*int (fileName *const char, text *char);						// FileIO: Save text data
+
+
+
+
+
+
+#external InitWindow				void (width int, height int, title *const char);  // Initialize window and OpenGL context
+#external WindowShouldClose			int (void);							// Check if KEY_ESCAPE pressed or Close icon pressed
+#external CloseWindow				void (void);						// Close window and unload OpenGL context
+#external IsWindowReady				int (void);							// Check if window has been initialized successfully
+#external IsWindowFullscreen		int (void);							// Check if window is currently fullscreen
+#external IsWindowHidden			int (void);							// Check if window is currently hidden (only PLATFORM_DESKTOP)
+#external IsWindowMinimized			int (void);							// Check if window is currently minimized (only PLATFORM_DESKTOP)
+#external IsWindowMaximized			int (void);							// Check if window is currently maximized (only PLATFORM_DESKTOP)
+#external IsWindowFocused			int (void);							// Check if window is currently focused (only PLATFORM_DESKTOP)
+#external IsWindowResized			int (void);							// Check if window has been resized last frame
+#external IsWindowState				int (flag uint);					// Check if one specific window flag is enabled
+#external SetWindowState			void (flags uint);					// Set window configuration state using flags (only PLATFORM_DESKTOP)
+#external ClearWindowState			void (flags uint);					// Clear window configuration state flags
+#external ToggleFullscreen			void (void);						// Toggle window state: fullscreen/windowed (only PLATFORM_DESKTOP)
+#external MaximizeWindow			void (void);						// Set window state: maximized, if resizable (only PLATFORM_DESKTOP)
+#external MinimizeWindow			void (void);						// Set window state: minimized, if resizable (only PLATFORM_DESKTOP)
+#external RestoreWindow				void (void);						// Set window state: not minimized/maximized (only PLATFORM_DESKTOP)
+#external SetWindowIcon				void (image struct Image);			// Set icon for window (only PLATFORM_DESKTOP)
+#external SetWindowTitle			void (title *const char);			// Set title for window (only PLATFORM_DESKTOP)
+#external SetWindowPosition			void (x int, y int);				// Set window position on screen (only PLATFORM_DESKTOP)
+#external SetWindowMonitor			void (monitor int);					// Set monitor for the current window (fullscreen mode)
+#external SetWindowMinSize			void (width int, height int);		// Set window minimum dimensions (for FLAG_WINDOW_RESIZABLE)
+#external SetWindowSize				void (width int, height int);		// Set window dimensions
+#external SetWindowOpacity			void (opacity float);				// Set window opacity [0.0f..1.0f] (only PLATFORM_DESKTOP)
+#external GetWindowHandle			(*void) (void);						// Get native window handle
+#external GetScreenWidth			int (void);							// Get current screen width
+#external GetScreenHeight			int (void);							// Get current screen height
+#external GetRenderWidth			int (void);							// Get current render width (it considers HiDPI)
+#external GetRenderHeight			int (void);							// Get current render height (it considers HiDPI)
+#external GetMonitorCount			int (void);							// Get number of connected monitors
+#external GetCurrentMonitor			int (void);							// Get current connected monitor
+#external GetMonitorPosition		struct Vector2 (monitor int);		// Get specified monitor position
+#external GetMonitorWidth			int (monitor int);					// Get specified monitor width (current video mode used by monitor)
+#external GetMonitorHeight			int (monitor int);					// Get specified monitor height (current video mode used by monitor)
+#external GetMonitorPhysicalWidth	int (monitor int);					// Get specified monitor physical width in millimetres
+#external GetMonitorPhysicalHeight	int (monitor int);					// Get specified monitor physical height in millimetres
+#external GetMonitorRefreshRate		int (monitor int);					// Get specified monitor refresh rate
+#external GetWindowPosition			struct Vector2 (void);				// Get window position XY on monitor
+#external GetWindowScaleDPI			struct Vector2 (void);				// Get window scale DPI factor
+#external GetMonitorName			(*const char) (monitor int);		// Get the human-readable, UTF-8 encoded name of the primary monitor
+#external SetClipboardText			void (text *const char);			// Set clipboard text content
+#external GetClipboardText			(*const char) (void);				// Get clipboard text content
+#external EnableEventWaiting		void (void);						// Enable waiting for events on EndDrawing(), no automatic event polling
+#external DisableEventWaiting		void (void);						// Disable waiting for events on EndDrawing(), automatic events polling
+
+// Custom frame control functions
+// NOTE: Those functions are intended for advance users that want full control over the frame processing
+// By default EndDrawing() does this job: draws everything + SwapScreenBuffer() + manage frame timming + PollInputEvents()
+// To avoid that behaviour and control frame processes manually, enable in config.h: SUPPORT_CUSTOM_FRAME_CONTROL
+#external SwapScreenBuffer		void (void);				// Swap back buffer with front buffer (screen drawing)
+#external PollInputEvents		void (void);				// Register all input events
+#external WaitTime				void (seconds double);		// Wait for some time (halt program execution)
+
+// Cursor-related functions
+#external ShowCursor			void (void);		// Shows cursor
+#external HideCursor			void (void);		// Hides cursor
+#external IsCursorHidden		int (void);			// Check if cursor is not visible
+#external EnableCursor			void (void);		// Enables cursor (unlock cursor)
+#external DisableCursor			void (void);		// Disables cursor (lock cursor)
+#external IsCursorOnScreen		int (void);			// Check if cursor is on the screen
+
+// Drawing-related functions
+#external ClearBackground		void (color struct Color);						// Set background color (framebuffer clear color)
+#external BeginDrawing			void (void);									// Setup canvas (framebuffer) to start drawing
+#external EndDrawing			void (void);									// End canvas drawing and swap buffers (double buffering)
+#external BeginMode2D			void (camera struct Camera2D);					// Begin 2D mode with custom camera (2D)
+#external EndMode2D				void (void);									// Ends 2D mode with custom camera
+#external BeginMode3D			void (camera struct Camera3D);					// Begin 3D mode with custom camera (3D)
+#external EndMode3D				void (void);									// Ends 3D mode and returns to default 2D orthographic mode
+#external BeginTextureMode		void (target RenderTexture2D);					// Begin drawing to render texture
+#external EndTextureMode		void (void);									// Ends drawing to render texture
+#external BeginShaderMode		void (shader struct Shader);					// Begin custom shader drawing
+#external EndShaderMode			void (void);									// End custom shader drawing (use default shader)
+#external BeginBlendMode		void (mode int);								// Begin blending mode (alpha, additive, multiplied, subtract, custom)
+#external EndBlendMode			void (void);									// End blending mode (reset to default: alpha blending)
+#external BeginScissorMode		void (x int, y int, width int, height int);		// Begin scissor mode (define screen area for following drawing)
+#external EndScissorMode		void (void);									// End scissor mode
+#external BeginVrStereoMode		void (config struct VrStereoConfig);			// Begin stereo rendering (requires VR simulator)
+#external EndVrStereoMode		void (void);									// End stereo rendering (requires VR simulator)
+
+// VR stereo config functions for VR simulator
+#external LoadVrStereoConfig		struct VrStereoConfig (device struct VrDeviceInfo);		// Load VR stereo config for VR simulator device parameters
+#external UnloadVrStereoConfig		void (config struct VrStereoConfig);					// Unload VR stereo config
+
+// Shader management functions
+// NOTE: Shader functionality is not available on OpenGL 1.1
+#external LoadShader				struct Shader (vsFileName *const char, fsFileName *const char);		// Load shader from files and bind default locations
+#external LoadShaderFromMemory		struct Shader (vsCode *const char, fsCode *const char);				// Load shader from code strings and bind default locations
+#external GetShaderLocation			int (shader struct Shader, uniformName *const char);				// Get shader uniform location
+#external GetShaderLocationAttrib	int (shader struct Shader, attribName *const char);					// Get shader attribute location
+#external SetShaderValue			void (shader struct Shader, locIndex int, value *const void, uniformType int);	// Set shader uniform value
+#external SetShaderValueV			void (shader struct Shader, locIndex int, value *const void, uniformType int, count int);	// Set shader uniform value vector
+#external SetShaderValueMatrix		void (shader struct Shader, locIndex int, mat struct Matrix);		// Set shader uniform value (matrix 4x4)
+#external SetShaderValueTexture		void (shader struct Shader, locIndex int, texture Texture2D);	// Set shader uniform value for texture (sampler2d)
+#external UnloadShader				void (shader struct Shader);										// Unload shader from GPU memory (VRAM)
+
+// Screen-space-related functions
+#external GetMouseRay			struct Ray (mousePosition struct Vector2, camera Camera);	// Get a ray trace from mouse position
+#external GetCameraMatrix		struct Matrix (camera Camera);								// Get camera transform matrix (view matrix)
+#external GetCameraMatrix2D		struct Matrix (camera struct Camera2D);								// Get camera 2d transform matrix
+#external GetWorldToScreen		struct Vector2 (position struct Vector3, camera Camera);		// Get the screen space position for a 3d world space position
+#external GetScreenToWorld2D	struct Vector2 (position struct Vector2, camera struct Camera2D);	// Get the world space position for a 2d camera screen space position
+#external GetWorldToScreenEx	struct Vector2 (position struct Vector3, camera Camera, width int, height int);	// Get size position for a 3d world space position
+#external GetWorldToScreen2D	struct Vector2 (position struct Vector2, camera struct Camera2D);	// Get the screen space position for a 2d camera world space position
+
+// Timing-related functions
+#external SetTargetFPS	void (fps int);			// Set target FPS (maximum)
+#external GetFPS		int (void);				// Get current FPS
+#external GetFrameTime	float (void);			// Get time in seconds for last frame drawn (delta time)
+#external GetTime		double (void);			// Get elapsed time in seconds since InitWindow()
+
+// Misc. functions
+#external GetRandomValue	int (min int, max int);			// Get a random value between min and max (both included)
+#external SetRandomSeed		void (seed uint);				// Set the seed for the random number generator
+#external TakeScreenshot	void (fileName *const char);	// Takes a screenshot of current screen (filename extension defines format)
+#external SetConfigFlags	void (flags uint);				// Setup init configuration flags (view FLAGS)
+
+#external TraceLog			void (logLevel int, text *const char, ...);		// Show trace log messages (LOG_DEBUG, LOG_INFO, LOG_WARNING, LOG_ERROR...)
+#external SetTraceLogLevel	void (logLevel int);							// Set the current threshold (minimum) log level
+#external MemAlloc			(*void) (size int);								// Internal memory allocator
+#external MemRealloc		(*void) (ptr *void, size int);					// Internal memory reallocator
+#external MemFree			void (ptr *void);								// Internal memory free
+
+#external OpenURL			void (url *const char);			// Open URL with default system browser (if available)
+
+// Set custom callbacks
+// WARNING: Callbacks setup is intended for advance users
+#external SetTraceLogCallback			void (callback TraceLogCallback);		// Set custom trace log
+#external SetLoadFileDataCallback		void (callback LoadFileDataCallback);	// Set custom file binary data loader
+#external SetSaveFileDataCallback		void (callback SaveFileDataCallback);	// Set custom file binary data saver
+#external SetLoadFileTextCallback		void (callback LoadFileTextCallback);	// Set custom file text data loader
+#external SetSaveFileTextCallback		void (callback SaveFileTextCallback);	// Set custom file text data saver
+
+// Files management functions
+#external LoadFileData				(*uchar) (fileName *const char, bytesRead *uint);		// Load file data as byte array (read)
+#external UnloadFileData			void (data *uchar);										// Unload file data allocated by LoadFileData()
+#external SaveFileData				int (fileName *const char, data *void, bytesToWrite uint);	// Save data to file from byte array (write), returns true on success
+#external ExportDataAsCode			int (data *const char, size uint, fileName *const char);	// Export data to code (.h), returns true on success
+#external LoadFileText				(*char) (fileName *const char);							// Load text data from file (read), returns a '\0' terminated string
+#external UnloadFileText			void (text *char);										// Unload file text data allocated by LoadFileText()
+#external SaveFileText				int (fileName *const char, text *char);					// Save text data to file (write), string must be '\0' terminated, returns true on success
+#external FileExists				int (fileName *const char);								// Check if file exists
+#external DirectoryExists			int (dirPath *const char);								// Check if a directory path exists
+#external IsFileExtension			int (fileName *const char, ext *const char);			// Check file extension (including point: .png, .wav)
+#external GetFileLength				int (fileName *const char);								// Get file length in bytes (NOTE: GetFileSize() conflicts with windows.h)
+#external GetFileExtension			(*const char) (fileName *const char);					// Get pointer to extension for a filename string (includes dot: '.png')
+#external GetFileName				(*const char) (filePath *const char);					// Get pointer to filename for a path string
+#external GetFileNameWithoutExt		(*const char) (filePath *const char);					// Get filename string without extension (uses static string)
+#external GetDirectoryPath			(*const char) (filePath *const char);					// Get full path for a given fileName with path (uses static string)
+#external GetPrevDirectoryPath		(*const char) (dirPath *const char);					// Get previous directory path for a given path (uses static string)
+#external GetWorkingDirectory		(*const char) (void);									// Get current working directory (uses static string)
+#external GetApplicationDirectory	(*const char) (void);									// Get the directory if the running application (uses static string)
+#external ChangeDirectory			int (dir *const char);									// Change working directory, return true on success
+#external IsPathFile				int (path *const char);									// Check if a given path is a file or a directory
+#external LoadDirectoryFiles		FilePathList (dirPath *const char);						// Load directory filepaths
+#external LoadDirectoryFilesEx		FilePathList (basePath *const char, filter *const char, scanSubdirs int);	// Load directory filepaths with extension filtering and recursive directory scan
+#external UnloadDirectoryFiles		void (files FilePathList);								// Unload filepaths
+#external IsFileDropped				int (void);												// Check if a file has been dropped into window
+#external LoadDroppedFiles			FilePathList (void);									// Load dropped filepaths
+#external UnloadDroppedFiles		void (files FilePathList);								// Unload dropped filepaths
+#external GetFileModTime			long (fileName *const char);							// Get file modification time (last write time)
+
+// Compression/Encoding functionality
+#external CompressData		(*uchar) (data *const byte, dataSize int, compDataSize *int);		// Compress data (DEFLATE algorithm), memory must be MemFree()
+#external DecompressData	(*uchar) (compData *const byte, compDataSize int, dataSize *int);	// Decompress data (DEFLATE algorithm), memory must be MemFree()
+#external EncodeDataBase64	(*char) (data *const byte, dataSize int, outputSize *int);			// Encode data to Base64 string, memory must be MemFree()
+#external DecodeDataBase64	(*uchar) (data *const byte, outputSize *int);						// Decode Base64 string data, memory must be MemFree()
+
+//------------------------------------------------------------------------------------
+// Input Handling Functions (Module: core)
+//------------------------------------------------------------------------------------
+
+// Input-related functions: keyboard
+#external IsKeyPressed		int (key int);		// Check if a key has been pressed once
+#external IsKeyDown			int (key int);		// Check if a key is being pressed
+#external IsKeyReleased		int (key int);		// Check if a key has been released once
+#external IsKeyUp			int (key int);		// Check if a key is NOT being pressed
+#external SetExitKey		void (key int);		// Set a custom key to exit program (default is ESC)
+#external GetKeyPressed		int (void);			// Get key pressed (keycode), call it multiple times for keys queued, returns 0 when the queue is empty
+#external GetCharPressed	int (void);			// Get char pressed (unicode), call it multiple times for chars queued, returns 0 when the queue is empty
+
+// Input-related functions: gamepads
+#external IsGamepadAvailable			int (gamepad int);				// Check if a gamepad is available
+#external GetGamepadName				(*const char) (gamepad int);	// Get gamepad internal name id
+#external IsGamepadButtonPressed		int (gamepad int, button int);	// Check if a gamepad button has been pressed once
+#external IsGamepadButtonDown			int (gamepad int, button int);	// Check if a gamepad button is being pressed
+#external IsGamepadButtonReleased		int (gamepad int, button int);	// Check if a gamepad button has been released once
+#external IsGamepadButtonUp				int (gamepad int, button int);	// Check if a gamepad button is NOT being pressed
+#external GetGamepadButtonPressed		int (void);						// Get the last gamepad button pressed
+#external GetGamepadAxisCount			int (gamepad int);				// Get gamepad axis count for a gamepad
+#external GetGamepadAxisMovement		float (gamepad int, axis int);	// Get axis movement value for a gamepad axis
+#external SetGamepadMappings			int (mappings *const char);		// Set internal gamepad mappings (SDL_GameControllerDB)
+
+// Input-related functions: mouse
+#external IsMouseButtonPressed		int (button int);					// Check if a mouse button has been pressed once
+#external IsMouseButtonDown			int (button int);					// Check if a mouse button is being pressed
+#external IsMouseButtonReleased		int (button int);					// Check if a mouse button has been released once
+#external IsMouseButtonUp			int (button int);					// Check if a mouse button is NOT being pressed
+#external GetMouseX					int (void);							// Get mouse position X
+#external GetMouseY					int (void);							// Get mouse position Y
+#external GetMousePosition			Vector2 (void);						// Get mouse position XY
+#external GetMouseDelta				Vector2 (void);						// Get mouse delta between frames
+#external SetMousePosition			void (x int, y int);				// Set mouse position XY
+#external SetMouseOffset			void (offsetX int, offsetY int);	// Set mouse offset
+#external SetMouseScale				void (scaleX float, scaleY float);	// Set mouse scaling
+#external GetMouseWheelMove			float (void);						// Get mouse wheel movement for X or Y, whichever is larger
+#external GetMouseWheelMoveV		Vector2 (void);						// Get mouse wheel movement for both X and Y
+#external SetMouseCursor			void (cursor int);					// Set mouse cursor
+
+// Input-related functions: touch
+#external GetTouchX				int (void);				// Get touch position X for touch point 0 (relative to screen size)
+#external GetTouchY				int (void);				// Get touch position Y for touch point 0 (relative to screen size)
+#external GetTouchPosition		Vector2 (index int);	// Get touch position XY for a touch point index (relative to screen size)
+#external GetTouchPointId		int (index int);		// Get touch point identifier for given index
+#external GetTouchPointCount	int (void);				// Get number of touch points
+
+//------------------------------------------------------------------------------------
+// Gestures and Touch Handling Functions (Module: rgestures)
+//------------------------------------------------------------------------------------
+#external SetGesturesEnabled		void (flags uint);		// Enable a set of gestures using flags
+#external IsGestureDetected			int (gesture int);		// Check if a gesture have been detected
+#external GetGestureDetected		int (void);				// Get latest detected gesture
+#external GetGestureHoldDuration	float (void);			// Get gesture hold time in milliseconds
+#external GetGestureDragVector		Vector2 (void);			// Get gesture drag vector
+#external GetGestureDragAngle		float (void);			// Get gesture drag angle
+#external GetGesturePinchVector		Vector2 (void);			// Get gesture pinch delta
+#external GetGesturePinchAngle		float (void);			// Get gesture pinch angle
+
+//------------------------------------------------------------------------------------
+// Camera System Functions (Module: rcamera)
+//------------------------------------------------------------------------------------
+#external SetCameraMode		void (camera Camera, mode int);		// Set camera mode (multiple camera modes available)
+#external UpdateCamera		void (camera *Camera);				// Update camera position for selected mode
+
+#external SetCameraPanControl			void (keyPan int);			// Set camera pan key to combine with mouse movement (free camera)
+#external SetCameraAltControl			void (keyAlt int);			// Set camera alt key to combine with mouse movement (free camera)
+#external SetCameraSmoothZoomControl	void (keySmoothZoom int);	// Set camera smooth zoom key to combine with mouse (free camera)
+#external SetCameraMoveControls			void (keyFront int, keyBack int, keyRight int, keyLeft int, keyUp int, keyDown int);	// Set camera move controls (1st person and 3rd person cameras)
+
+
+
+
+// Shapes module
+
+// Set texture and rectangle to be used on shapes drawing
+// NOTE: It can be useful when using basic shapes and one single font,
+// defining a font char white rectangle would allow drawing everything in a single draw call
+#external SetShapesTexture		void (texture Texture2D, source Rectangle);		// Set texture and rectangle to be used on shapes drawing
+
+// Basic shapes drawing functions
+#external DrawPixel						void (posX int, posY int, color Color);								// Draw a pixel
+#external DrawPixelV					void (position Vector2, color Color);								// Draw a pixel (Vector version)
+#external DrawLine						void (startPosX int, startPosY int, endPosX int, endPosY int, color Color);		// Draw a line
+#external DrawLineV						void (startPos Vector2, endPos Vector2, color Color);				// Draw a line (Vector version)
+#external DrawLineEx					void (startPos Vector2, endPos Vector2, thick float, color Color);	// Draw a line defining thickness
+#external DrawLineBezier				void (startPos Vector2, endPos Vector2, thick float, color Color);	// Draw a line using cubic-bezier curves in-out
+#external DrawLineBezierQuad			void (startPos Vector2, endPos Vector2, controlPos Vector2, thick float, color Color);	// Draw line using quadratic bezier curves with a control point
+#external DrawLineBezierCubic			void (startPos Vector2, endPos Vector2, startControlPos Vector2, endControlPos Vector2, thick float, color Color);	// Draw line using cubic bezier curves with 2 control points
+#external DrawLineStrip					void (points *Vector2, pointCount int, color Color);				// Draw lines sequence
+#external DrawCircle					void (centerX int, centerY int, radius float, color Color);			// Draw a color-filled circle
+#external DrawCircleSector				void (center Vector2, radius float, startAngle float, endAngle float, segments int, color Color);	// Draw a piece of a circle
+#external DrawCircleSectorLines			void (center Vector2, radius float, startAngle float, endAngle float, segments int, color Color);	// Draw circle sector outline
+#external DrawCircleGradient			void (centerX int, centerY int, radius float, color1 Color, color2 Color);	// Draw a gradient-filled circle
+#external DrawCircleV					void (center Vector2, radius float, color Color);					// Draw a color-filled circle (Vector version)
+#external DrawCircleLines				void (centerX int, centerY int, radius float, color Color);			// Draw circle outline
+#external DrawEllipse					void (centerX int, centerY int, radiusH float, radiusV float, color Color);		// Draw ellipse
+#external DrawEllipseLines				void (centerX int, centerY int, radiusH float, radiusV float, color Color);		// Draw ellipse outline
+#external DrawRing						void (center Vector2, innerRadius float, outerRadius float, startAngle float, endAngle float, segments int, color Color);	// Draw ring
+#external DrawRingLines					void (center Vector2, innerRadius float, outerRadius float, startAngle float, endAngle float, segments int, color Color);	// Draw ring outline
+#external DrawRectangle					void (posX int, posY int, width int, height int, color Color);		// Draw a color-filled rectangle
+#external DrawRectangleV				void (position Vector2, size Vector2, color Color);					// Draw a color-filled rectangle (Vector version)
+#external DrawRectangleRec				void (rec Rectangle, color Color);									// Draw a color-filled rectangle
+#external DrawRectanglePro				void (rec Rectangle, origin Vector2, rotation float, color Color);	// Draw a color-filled rectangle with pro parameters
+#external DrawRectangleGradientV		void (posX int, posY int, width int, height int, color1 Color, color2 Color);	// Draw a vertical-gradient-filled rectangle
+#external DrawRectangleGradientH		void (posX int, posY int, width int, height int, color1 Color, color2 Color);	// Draw a horizontal-gradient-filled rectangle
+#external DrawRectangleGradientEx		void (rec Rectangle, col1 Color, col2 Color, col3 Color, col4 Color);			// Draw a gradient-filled rectangle with custom vertex colors
+#external DrawRectangleLines			void (posX int, posY int, width int, height int, color Color);		// Draw rectangle outline
+#external DrawRectangleLinesEx			void (rec Rectangle, lineThick float, color Color);					// Draw rectangle outline with extended parameters
+#external DrawRectangleRounded			void (rec Rectangle, roundness float, segments int, color Color);	// Draw rectangle with rounded edges
+#external DrawRectangleRoundedLines		void (rec Rectangle, roundness float, segments int, lineThick float, color Color);	// Draw rectangle with rounded edges outline
+#external DrawTriangle					void (v1 Vector2, v2 Vector2, v3 Vector2, color Color);				// Draw a color-filled triangle (vertex in counter-clockwise order!)
+#external DrawTriangleLines				void (v1 Vector2, v2 Vector2, v3 Vector2, color Color);				// Draw triangle outline (vertex in counter-clockwise order!)
+#external DrawTriangleFan				void (points *Vector2, pointCount int, color Color);				// Draw a triangle fan defined by points (first vertex is the center)
+#external DrawTriangleStrip				void (points *Vector2, pointCount int, color Color);				// Draw a triangle strip defined by points
+#external DrawPoly						void (center Vector2, sides int, radius float, rotation float, color Color);	// Draw a regular polygon (Vector version)
+#external DrawPolyLines					void (center Vector2, sides int, radius float, rotation float, color Color);	// Draw a polygon outline of n sides
+#external DrawPolyLinesEx				void (center Vector2, sides int, radius float, rotation float, lineThick float, color Color);	// Draw a polygon outline of n sides with extended parameters
+
+// Basic shapes collision detection functions
+#external CheckCollisionRecs			int (rec1 Rectangle, rec2 Rectangle);					// Check collision between two rectangles
+#external CheckCollisionCircles			int (center1 Vector2, radius1 float, center2 Vector2, radius2 float);	// Check collision between two circles
+#external CheckCollisionCircleRec		int (center Vector2, radius float, rec Rectangle);		// Check collision between circle and rectangle
+#external CheckCollisionPointRec		int (point Vector2, rec Rectangle);						// Check if point is inside rectangle
+#external CheckCollisionPointCircle		int (point Vector2, center Vector2, radius float);		// Check if point is inside circle
+#external CheckCollisionPointTriangle	int (point Vector2, p1 Vector2, p2 Vector2, p3 Vector2);	// Check if point is inside a triangle
+#external CheckCollisionLines			int (startPos1 Vector2, endPos1 Vector2, startPos2 Vector2, endPos2 Vector2, collisionPoint *Vector2);	// Check the collision between two lines defined by two points each, returns collision point by reference
+#external CheckCollisionPointLine		int (point Vector2, p1 Vector2, p2 Vector2, threshold int);	// Check if point belongs to line created between two points [p1] and [p2] with defined margin in pixels [threshold]
+#external GetCollisionRec				Rectangle (rec1 Rectangle, rec2 Rectangle);				// Get collision rectangle for two rectangles collision
+
+
+
+// module Textures
+
+// Image loading functions
+// NOTE: This functions do not require GPU access
+#external LoadImage					Image (fileName *const char);				// Load image from file into CPU memory (RAM)
+#external LoadImageRaw				Image (fileName *const char, width int, height int, format int, headerSize int);	// Load image from RAW file data
+#external LoadImageAnim				Image (fileName *const char, frames *int);	// Load image sequence from file (frames appended to image.data)
+#external LoadImageFromMemory		Image (fileType *const char, fileData *const byte, dataSize int);	// Load image from memory buffer, fileType refers to extension: i.e. '.png'
+#external LoadImageFromTexture		Image (texture Texture2D);					// Load image from GPU texture data
+#external LoadImageFromScreen		Image (void);								// Load image from screen buffer and (screenshot)
+#external UnloadImage				void (image Image);							// Unload image from CPU memory (RAM)
+#external ExportImage				int (image Image, fileName *const char);	// Export image data to file, returns true on success
+#external ExportImageAsCode			int (image Image, fileName *const char);	// Export image as code file defining an array of bytes, returns true on success
+
+// Image generation functions
+#external GenImageColor				Image (width int, height int, color Color);					// Generate image: plain color
+#external GenImageGradientV			Image (width int, height int, top Color, bottom Color);		// Generate image: vertical gradient
+#external GenImageGradientH			Image (width int, height int, left Color, right Color);		// Generate image: horizontal gradient
+#external GenImageGradientRadial	Image (width int, height int, density float, inner Color, outer Color);	// Generate image: radial gradient
+#external GenImageChecked			Image (width int, height int, checksX int, checksY int, col1 Color, col2 Color);	// Generate image: checked
+#external GenImageWhiteNoise		Image (width int, height int, factor float);				// Generate image: white noise
+#external GenImageCellular			Image (width int, height int, tileSize int);				// Generate image: cellular algorithm, bigger tileSize means bigger cells
+
+// Image manipulation functions
+#external ImageCopy					Image (image Image);										// Create an image duplicate (useful for transformations)
+#external ImageFromImage			Image (image Image, rec Rectangle);							// Create an image from another image piece
+#external ImageText					Image (text *const char, fontSize int, color Color);		// Create an image from text (default font)
+#external ImageTextEx				Image (font Font, text *const char, fontSize float, spacing float, tint Color);	// Create an image from text (custom sprite font)
+#external ImageFormat				void (image *Image, newFormat int);							// Convert image data to desired format
+#external ImageToPOT				void (image *Image, fill Color);							// Convert image to POT (power-of-two)
+#external ImageCrop					void (image *Image, crop Rectangle);						// Crop an image to a defined rectangle
+#external ImageAlphaCrop			void (image *Image, threshold float);						// Crop image depending on alpha value
+#external ImageAlphaClear			void (image *Image, color Color, threshold float);			// Clear alpha channel to desired color
+#external ImageAlphaMask			void (image *Image, alphaMask Image);						// Apply alpha mask to image
+#external ImageAlphaPremultiply		void (image *Image);										// Premultiply alpha channel
+#external ImageResize				void (image *Image, newWidth int, newHeight int);			// Resize image (Bicubic scaling algorithm)
+#external ImageResizeNN				void (image *Image, newWidth int, newHeight int);			// Resize image (Nearest-Neighbor scaling algorithm)
+#external ImageResizeCanvas			void (image *Image, newWidth int, newHeight int, offsetX int, offsetY int, fill Color);	// Resize canvas and fill with color
+#external ImageMipmaps				void (image *Image);										// Compute all mipmap levels for a provided image
+#external ImageDither				void (image *Image, rBpp int, gBpp int, bBpp int, aBpp int);	// Dither image data to 16bpp or lower (Floyd-Steinberg dithering)
+#external ImageFlipVertical			void (image *Image);										// Flip image vertically
+#external ImageFlipHorizontal		void (image *Image);										// Flip image horizontally
+#external ImageRotateCW				void (image *Image);										// Rotate image clockwise 90deg
+#external ImageRotateCCW			void (image *Image);										// Rotate image counter-clockwise 90deg
+#external ImageColorTint			void (image *Image, color Color);							// Modify image color: tint
+#external ImageColorInvert			void (image *Image);										// Modify image color: invert
+#external ImageColorGrayscale		void (image *Image);										// Modify image color: grayscale
+#external ImageColorContrast		void (image *Image, contrast float);						// Modify image color: contrast (-100 to 100)
+#external ImageColorBrightness		void (image *Image, brightness int);						// Modify image color: brightness (-255 to 255)
+#external ImageColorReplace			void (image *Image, color Color, replace Color);			// Modify image color: replace color
+#external LoadImageColors			(*Color) (image Image);										// Load color data from image as a Color array (RGBA - 32bit)
+#external LoadImagePalette			(*Color) (image Image, maxPaletteSize int, colorCount *int);	// Load colors palette from image as a Color array (RGBA - 32bit)
+#external UnloadImageColors			void (colors *Color);										// Unload color data loaded with LoadImageColors()
+#external UnloadImagePalette		void (colors *Color);										// Unload colors palette loaded with LoadImagePalette()
+#external GetImageAlphaBorder		Rectangle (image Image, threshold float);					// Get image alpha border rectangle
+#external GetImageColor				Color (image Image, x int, y int);							// Get image pixel color at (x, y) position
+
+// Image drawing functions
+// NOTE: Image software-rendering functions (CPU)
+#external ImageClearBackground		void (dst *Image, color Color);								// Clear image background with given color
+#external ImageDrawPixel			void (dst *Image, posX int, posY int, color Color);			// Draw pixel within an image
+#external ImageDrawPixelV			void (dst *Image, position Vector2, color Color);			// Draw pixel within an image (Vector version)
+#external ImageDrawLine				void (dst *Image, startPosX int, startPosY int, endPosX int, endPosY int, color Color);	// Draw line within an image
+#external ImageDrawLineV			void (dst *Image, start Vector2, end Vector2, color Color);	// Draw line within an image (Vector version)
+#external ImageDrawCircle			void (dst *Image, centerX int, centerY int, radius int, color Color);	// Draw circle within an image
+#external ImageDrawCircleV			void (dst *Image, center Vector2, radius int, color Color);	// Draw circle within an image (Vector version)
+#external ImageDrawRectangle		void (dst *Image, posX int, posY int, width int, height int, color Color);	// Draw rectangle within an image
+#external ImageDrawRectangleV		void (dst *Image, position Vector2, size Vector2, color Color);	// Draw rectangle within an image (Vector version)
+#external ImageDrawRectangleRec		void (dst *Image, rec Rectangle, color Color);				// Draw rectangle within an image
+#external ImageDrawRectangleLines	void (dst *Image, rec Rectangle, thick int, color Color);	// Draw rectangle lines within an image
+#external ImageDraw					void (dst *Image, src Image, srcRec Rectangle, dstRec Rectangle, tint Color);	// Draw a source image within a destination image (tint applied to source)
+#external ImageDrawText				void (dst *Image, text *const char, posX int, posY int, fontSize int, color Color);	// Draw text (using default font) within an image (destination)
+#external ImageDrawTextEx			void (dst *Image, font Font, text *const char, position Vector2, fontSize float, spacing float, tint Color);	// Draw text (custom sprite font) within an image (destination)
+
+// Texture loading functions
+// NOTE: These functions require GPU access
+#external LoadTexture			Texture2D (fileName *const char);			// Load texture from file into GPU memory (VRAM)
+#external LoadTextureFromImage	Texture2D (image Image);					// Load texture from image data
+#external LoadTextureCubemap	TextureCubemap (image Image, layout int);	// Load cubemap from image, multiple image cubemap layouts supported
+#external LoadRenderTexture		RenderTexture2D (width int, height int);	// Load texture for rendering (framebuffer)
+#external UnloadTexture			void (texture Texture2D);					// Unload texture from GPU memory (VRAM)
+#external UnloadRenderTexture	void (target RenderTexture2D);				// Unload render texture from GPU memory (VRAM)
+#external UpdateTexture			void (target Texture2D, pixels *const void);	// Update GPU texture with new data
+#external UpdateTextureRec		void (target Texture2D, rec Rectangle, pixels *const void);	// Update GPU texture rectangle with new data
+
+// Texture configuration functions
+#external GenTextureMipmaps		void (texture *Texture2D);				// Generate GPU mipmaps for a texture
+#external SetTextureFilter		void (texture Texture2D, filter int);	// Set texture scaling filter mode
+#external SetTextureWrap		void (texture Texture2D, wrap int);		// Set texture wrapping mode
+
+// Texture drawing functions
+#external DrawTexture			void (texture Texture2D, posX int, posY int, tint Color);				// Draw a Texture2D
+#external DrawTextureV			void (texture Texture2D, position Vector2, tint Color);					// Draw a Texture2D with position defined as Vector2
+#external DrawTextureEx			void (texture Texture2D, position Vector2, rotation float, scale float, tint Color);	// Draw a Texture2D with extended parameters
+#external DrawTextureRec		void (texture Texture2D, source Rectangle, position Vector2, tint Color);	// Draw a part of a texture defined by a rectangle
+#external DrawTextureQuad		void (texture Texture2D, tiling Vector2, offset Vector2, quad Rectangle, tint Color);	// Draw texture quad with tiling and offset parameters
+#external DrawTextureTiled		void (texture Texture2D, source Rectangle, dest Rectangle, origin Vector2, rotation float, scale float, tint Color);	// Draw part of a texture (defined by a rectangle) with rotation and scale tiled into dest.
+#external DrawTexturePro		void (texture Texture2D, source Rectangle, dest Rectangle, origin Vector2, rotation float, tint Color);	// Draw a part of a texture defined by a rectangle with 'pro' parameters
+#external DrawTextureNPatch		void (texture Texture2D, nPatchInfo NPatchInfo, dest Rectangle, origin Vector2, rotation float, tint Color);	// Draws a texture (or part of it) that stretches or shrinks nicely
+#external DrawTexturePoly		void (texture Texture2D, center Vector2, points *Vector2, texcoords *Vector2, pointCount int, tint *Color);	// Draw a textured polygon
+
+// Color/pixel related functions
+#external Fade					Color (color Color, alpha float);	// Get color with alpha applied, alpha goes from 0.0f to 1.0f
+#external ColorToInt			int (color Color);					// Get hexadecimal value for a Color
+#external ColorNormalize		Vector4 (color Color);				// Get Color normalized as float [0..1]
+#external ColorFromNormalized	Color (normalized Vector4);			// Get Color from normalized values [0..1]
+#external ColorToHSV			Vector3 (color Color);				// Get HSV values for a Color, hue [0..360], saturation/value [0..1]
+#external ColorFromHSV			Color (hue float, saturation float, value float);	// Get a Color from HSV values, hue [0..360], saturation/value [0..1]
+#external ColorAlpha			Color (color Color, alpha float);	// Get color with alpha applied, alpha goes from 0.0f to 1.0f
+#external ColorAlphaBlend		Color (dst Color, src Color, tint Color);	// Get src alpha-blended into dst color with tint
+#external GetColor				Color (hexValue uint);				// Get Color structure from hexadecimal value
+#external GetPixelColor			Color (srcPtr *void, format int);	// Get Color from a source pixel pointer of certain format
+#external SetPixelColor			void (dstPtr *void, color Color, format int);	// Set color formatted into destination pixel pointer
+#external GetPixelDataSize		int (width int, height int, format int);	// Get pixel data size in bytes for certain format
+
+
+
+
+// module Text
+
+// Font loading/unloading functions
+#external GetFontDefault		Font (void);						// Get the default Font
+#external LoadFont				Font (fileName *const char);		// Load font from file into GPU memory (VRAM)
+#external LoadFontEx			Font (fileName *const char, fontSize int, fontChars *int, glyphCount int);	// Load font from file with extended parameters, use NULL for fontChars and 0 for glyphCount to load the default character set
+#external LoadFontFromImage		Font (image Image, key Color, firstChar int);	// Load font from Image (XNA style)
+#external LoadFontFromMemory	Font (fileType *const char, fileData *const byte, dataSize int, fontSize int, fontChars *int, glyphCount int);	// Load font from memory buffer, fileType refers to extension: i.e. '.ttf'
+#external LoadFontData			(*GlyphInfo) (fileData *const byte, dataSize int, fontSize int, fontChars *int, glyphCount int, type int);	// Load font data for further use
+#external GenImageFontAtlas		Image (chars *const GlyphInfo, recs **Rectangle, glyphCount int, fontSize int, padding int, packMethod int);	// Generate image font atlas using chars info
+#external UnloadFontData		void (chars *GlyphInfo, glyphCount int);	// Unload font chars info data (RAM)
+#external UnloadFont			void (font Font);					// Unload font from GPU memory (VRAM)
+#external ExportFontAsCode		int (font Font, fileName *const char);	// Export font as code file, returns true on success
+
+// Text drawing functions
+#external DrawFPS				void (posX int, posY int);	// Draw current FPS
+#external DrawText				void (text *const char, posX int, posY int, fontSize int, color Color);	// Draw text (using default font)
+#external DrawTextEx			void (font Font, text *const char, position Vector2, fontSize float, spacing float, tint Color);	// Draw text using font and additional parameters
+#external DrawTextPro			void (font Font, text *const char, position Vector2, origin Vector2, rotation float, fontSize float, spacing float, tint Color);	// Draw text using Font and pro parameters (rotation)
+#external DrawTextCodepoint		void (font Font, codepoint int, position Vector2, fontSize float, tint Color);	// Draw one character (codepoint)
+#external DrawTextCodepoints	void (font Font, codepoints *const int, count int, position Vector2, fontSize float, spacing float, tint Color);	// Draw multiple character (codepoint)
+
+// Text font info functions
+#external MeasureText		int (text *const char, fontSize int);	// Measure string width for default font
+#external MeasureTextEx		Vector2 (font Font, text *const char, fontSize float, spacing float);	// Measure string size for Font
+#external GetGlyphIndex		int (font Font, codepoint int);			// Get glyph index position in font for a codepoint (unicode character), fallback to '?' if not found
+#external GetGlyphInfo		GlyphInfo (font Font, codepoint int);	// Get glyph font info data for a codepoint (unicode character), fallback to '?' if not found
+#external GetGlyphAtlasRec	Rectangle (font Font, codepoint int);	// Get glyph rectangle in font atlas for a codepoint (unicode character), fallback to '?' if not found
+
+// Text codepoints management functions (unicode characters)
+#external LoadCodepoints		(*int) (text *const char, count *int);			// Load all codepoints from a UTF-8 text string, codepoints count returned by parameter
+#external UnloadCodepoints		void (codepoints *int);							// Unload codepoints data from memory
+#external GetCodepointCount		int (text *const char);							// Get total number of codepoints in a UTF-8 encoded string
+#external GetCodepoint			int (text *const char, bytesProcessed *int);	// Get next codepoint in a UTF-8 encoded string, 0x3f('?') is returned on failure
+#external CodepointToUTF8		(*const char) (codepoint int, byteSize *int);	// Encode one codepoint into UTF-8 byte array (array length returned as parameter)
+#external TextCodepointsToUTF8	(*char) (codepoints *const int, length int);	// Encode text as codepoints array into UTF-8 text string (WARNING: memory must be freed!)
+
+// Text strings management functions (no UTF-8 strings, only byte chars)
+// NOTE: Some strings allocate memory internally for returned strings, just be careful!
+#external TextCopy			int (dst *char, src *const char);					// Copy one string to another, returns bytes copied
+#external TextIsEqual		int (text1 *const char, text2 *const char);			// Check if two text string are equal
+#external TextLength		uint (text *const char);							// Get text length, checks for '\0' ending
+#external TextFormat		(*const char) (text *const char, ...);				// Text formatting with variables (sprintf() style)
+#external TextSubtext		(*const char) (text *const char, position int, length int);	// Get a piece of a text string
+#external TextReplace		(*char) (text *char, replace *const char, by *const char);	// Replace text string (WARNING: memory must be freed!)
+#external TextInsert		(*char) (text *const char, insert *const char, position int);	// Insert text in a position (WARNING: memory must be freed!)
+#external TextJoin			(*const char) (textList **const char, count int, delimiter *const char);	// Join text strings with delimiter
+#external TextSplit			(**const char) (text *const char, delimiter char, count *int);	// Split text into multiple strings
+#external TextAppend		void (text *char, append *const char, position *int);	// Append text at specific position and move cursor!
+#external TextFindIndex		int (text *const char, find *const char);			// Find first text occurrence within a string
+#external TextToUpper		(*const char) (text *const char);					// Get upper case version of provided string
+#external TextToLower		(*const char) (text *const char);					// Get lower case version of provided string
+#external TextToPascal		(*const char) (text *const char);					// Get Pascal case notation version of provided string
+#external TextToInteger		int (text *const char);								// Get integer value from text (negative values not supported)
+
+
+
+// module Models
+
+// Basic geometric 3D shapes drawing functions
+#external DrawLine3D			void (startPos Vector3, endPos Vector3, color Color);	// Draw a line in 3D world space
+#external DrawPoint3D			void (position Vector3, color Color);					// Draw a point in 3D space, actually a small line
+#external DrawCircle3D			void (center Vector3, radius float, rotationAxis Vector3, rotationAngle float, color Color);	// Draw a circle in 3D world space
+#external DrawTriangle3D		void (v1 Vector3, v2 Vector3, v3 Vector3, color Color);	// Draw a color-filled triangle (vertex in counter-clockwise order!)
+#external DrawTriangleStrip3D	void (points *Vector3, pointCount int, color Color);	// Draw a triangle strip defined by points
+#external DrawCube				void (position Vector3, width float, height float, length float, color Color);	// Draw cube
+#external DrawCubeV				void (position Vector3, size Vector3, color Color);		// Draw cube (Vector version)
+#external DrawCubeWires			void (position Vector3, width float, height float, length float, color Color);	// Draw cube wires
+#external DrawCubeWiresV		void (position Vector3, size Vector3, color Color);		// Draw cube wires (Vector version)
+#external DrawCubeTexture		void (texture Texture2D, position Vector3, width float, height float, length float, color Color);	// Draw cube textured
+#external DrawCubeTextureRec	void (texture Texture2D, source Rectangle, position Vector3, width float, height float, length float, color Color);	// Draw cube with a region of a texture
+#external DrawSphere			void (centerPos Vector3, radius float, color Color);	// Draw sphere
+#external DrawSphereEx			void (centerPos Vector3, radius float, rings int, slices int, color Color);	// Draw sphere with extended parameters
+#external DrawSphereWires		void (centerPos Vector3, radius float, rings int, slices int, color Color);	// Draw sphere wires
+#external DrawCylinder			void (position Vector3, radiusTop float, radiusBottom float, height float, slices int, color Color);	// Draw a cylinder/cone
+#external DrawCylinderEx		void (startPos Vector3, endPos Vector3, startRadius float, endRadius float, sides int, color Color);	// Draw a cylinder with base at startPos and top at endPos
+#external DrawCylinderWires		void (position Vector3, radiusTop float, radiusBottom float, height float, slices int, color Color);	// Draw a cylinder/cone wires
+#external DrawCylinderWiresEx	void (startPos Vector3, endPos Vector3, startRadius float, endRadius float, sides int, color Color);	// Draw a cylinder wires with base at startPos and top at endPos
+#external DrawPlane				void (centerPos Vector3, size Vector2, color Color);	// Draw a plane XZ
+#external DrawRay				void (ray Ray, color Color);							// Draw a ray line
+#external DrawGrid				void (slices int, spacing float);						// Draw a grid (centered at (0, 0, 0))
+
+//------------------------------------------------------------------------------------
+// Model 3d Loading and Drawing Functions (Module: models)
+//------------------------------------------------------------------------------------
+
+// Model management functions
+#external LoadModel					Model (fileName *const char);	// Load model from files (meshes and materials)
+#external LoadModelFromMesh			Model (mesh Mesh);				// Load model from generated mesh (default material)
+#external UnloadModel				void (model Model);				// Unload model (including meshes) from memory (RAM and/or VRAM)
+#external UnloadModelKeepMeshes		void (model Model);				// Unload model (but not meshes) from memory (RAM and/or VRAM)
+#external GetModelBoundingBox		BoundingBox (model Model);		// Compute model bounding box limits (considers all meshes)
+
+// Model drawing functions
+#external DrawModel			void (model Model, position Vector3, scale float, tint Color);			// Draw a model (with texture if set)
+#external DrawModelEx		void (model Model, position Vector3, rotationAxis Vector3, rotationAngle float, scale Vector3, tint Color);	// Draw a model with extended parameters
+#external DrawModelWires	void (model Model, position Vector3, scale float, tint Color);			// Draw a model wires (with texture if set)
+#external DrawModelWiresEx	void (model Model, position Vector3, rotationAxis Vector3, rotationAngle float, scale Vector3, tint Color);	// Draw a model wires (with texture if set) with extended parameters
+#external DrawBoundingBox	void (box BoundingBox, color Color);									// Draw bounding box (wires)
+#external DrawBillboard		void (camera Camera, texture Texture2D, position Vector3, size float, tint Color);	// Draw a billboard texture
+#external DrawBillboardRec	void (camera Camera, texture Texture2D, source Rectangle, position Vector3, size Vector2, tint Color);	// Draw a billboard texture defined by source
+#external DrawBillboardPro	void (camera Camera, texture Texture2D, source Rectangle, position Vector3, up Vector3, size Vector2, origin Vector2, rotation float, tint Color);	// Draw a billboard texture defined by source and rotation
+
+// Mesh management functions
+#external UploadMesh			void (mesh *Mesh, dynamic int);			// Upload mesh vertex data in GPU and provide VAO/VBO ids
+#external UpdateMeshBuffer		void (mesh Mesh, index int, data *const void, dataSize int, offset int);	// Update mesh vertex data in GPU for a specific buffer index
+#external UnloadMesh			void (mesh Mesh);						// Unload mesh data from CPU and GPU
+#external DrawMesh				void (mesh Mesh, material Material, transform Matrix);	// Draw a 3d mesh with material and transform
+#external DrawMeshInstanced		void (mesh Mesh, material Material, transforms *const Matrix, instances int);	// Draw multiple mesh instances with material and different transforms
+#external ExportMesh			int (mesh Mesh, fileName *const char);	// Export mesh data to file, returns true on success
+#external GetMeshBoundingBox	BoundingBox (mesh Mesh);				// Compute mesh bounding box limits
+#external GenMeshTangents		void (mesh *Mesh);						// Compute mesh tangents
+
+// Mesh generation functions
+#external GenMeshPoly			Mesh (sides int, radius float);                                                    // Generate polygonal mesh
+#external GenMeshPlane			Mesh (width float, length float, resX int, resZ int);                             // Generate plane mesh (with subdivisions)
+#external GenMeshCube			Mesh (width float, height float, length float);                                    // Generate cuboid mesh
+#external GenMeshSphere			Mesh (radius float, rings int, slices int);                                      // Generate sphere mesh (standard sphere)
+#external GenMeshHemiSphere		Mesh (radius float, rings int, slices int);                                  // Generate half-sphere mesh (no bottom cap)
+#external GenMeshCylinder		Mesh (radius float, height float, slices int);                                 // Generate cylinder mesh
+#external GenMeshCone			Mesh (radius float, height float, slices int);                                     // Generate cone/pyramid mesh
+#external GenMeshTorus			Mesh (radius float, size float, radSeg int, sides int);                           // Generate torus mesh
+#external GenMeshKnot			Mesh (radius float, size float, radSeg int, sides int);                            // Generate trefoil knot mesh
+#external GenMeshHeightmap		Mesh (heightmap Image, size Vector3);                                         // Generate heightmap mesh from image data
+#external GenMeshCubicmap		Mesh (cubicmap Image, cubeSize Vector3);                                       // Generate cubes-based map mesh from image data
+
+// Material loading/unloading functions
+#external LoadMaterials			(*Material) (fileName *const char, materialCount *int);		// Load materials from model file
+#external LoadMaterialDefault	Material (void);											// Load default material (Supports: DIFFUSE, SPECULAR, NORMAL maps)
+#external UnloadMaterial		void (material Material);									// Unload material from GPU memory (VRAM)
+#external SetMaterialTexture	void (material *Material, mapType int, texture Texture2D);	// Set texture for a material map type (MATERIAL_MAP_DIFFUSE, MATERIAL_MAP_SPECULAR...)
+#external SetModelMeshMaterial	void (model *Model, meshId int, materialId int);			// Set material for a mesh
+
+// Model animations loading/unloading functions
+#external LoadModelAnimations		(*ModelAnimation) (fileName *const char, animCount *uint);	// Load model animations from file
+#external UpdateModelAnimation		void (model Model, anim ModelAnimation, frame int);			// Update model animation pose
+#external UnloadModelAnimation		void (anim ModelAnimation);									// Unload animation data
+#external UnloadModelAnimations		void (animations *ModelAnimation, count uint);				// Unload animation array data
+#external IsModelAnimationValid		int (model Model, anim ModelAnimation);						// Check model animation skeleton match
+
+// Collision detection functions
+#external CheckCollisionSpheres			int (center1 Vector3, radius1 float, center2 Vector3, radius2 float);	// Check collision between two spheres
+#external CheckCollisionBoxes			int (box1 BoundingBox, box2 BoundingBox);								// Check collision between two bounding boxes
+#external CheckCollisionBoxSphere		int (box BoundingBox, center Vector3, radius float);					// Check collision between box and sphere
+#external GetRayCollisionSphere			RayCollision (ray Ray, center Vector3, radius float);					// Get collision info between ray and sphere
+#external GetRayCollisionBox			RayCollision (ray Ray, box BoundingBox);								// Get collision info between ray and box
+#external GetRayCollisionMesh			RayCollision (ray Ray, mesh Mesh, transform Matrix);					// Get collision info between ray and mesh
+#external GetRayCollisionTriangle		RayCollision (ray Ray, p1 Vector3, p2 Vector3, p3 Vector3);				// Get collision info between ray and triangle
+#external GetRayCollisionQuad			RayCollision (ray Ray, p1 Vector3, p2 Vector3, p3 Vector3, p4 Vector3);	// Get collision info between ray and quad
+
+
+
+// module Audio
+
+// Audio device management functions
+#external InitAudioDevice		void (void);			// Initialize audio device and context
+#external CloseAudioDevice		void (void);			// Close the audio device and context
+#external IsAudioDeviceReady	int (void);				// Check if audio device has been initialized successfully
+#external SetMasterVolume		void (volume float);	// Set master volume (listener)
+
+// Wave/Sound loading/unloading functions
+#external LoadWave				Wave (fileName *const char);			// Load wave data from file
+#external LoadWaveFromMemory	Wave (fileType *const char, fileData *const byte, dataSize int);	// Load wave from memory buffer, fileType refers to extension: i.e. '.wav'
+#external LoadSound				Sound (fileName *const char);			// Load sound from file
+#external LoadSoundFromWave		Sound (wave Wave);						// Load sound from wave data
+#external UpdateSound			void (sound Sound, data *const void, sampleCount int);	// Update sound buffer with new data
+#external UnloadWave			void (wave Wave);						// Unload wave data
+#external UnloadSound			void (sound Sound);						// Unload sound
+#external ExportWave			int (wave Wave, fileName *const char);	// Export wave data to file, returns true on success
+#external ExportWaveAsCode		int (wave Wave, fileName *const char);	// Export wave sample data to code (.h), returns true on success
+
+// Wave/Sound management functions
+#external PlaySound				void (sound Sound);			// Play a sound
+#external StopSound				void (sound Sound);			// Stop playing a sound
+#external PauseSound			void (sound Sound);			// Pause a sound
+#external ResumeSound			void (sound Sound);			// Resume a paused sound
+#external PlaySoundMulti		void (sound Sound);			// Play a sound (using multichannel buffer pool)
+#external StopSoundMulti		void (void);				// Stop any sound playing (using multichannel buffer pool)
+#external GetSoundsPlaying		int (void);					// Get number of sounds playing in the multichannel
+#external IsSoundPlaying		int (sound Sound);			// Check if a sound is currently playing
+#external SetSoundVolume		void (sound Sound, volume float);	// Set volume for a sound (1.0 is max level)
+#external SetSoundPitch			void (sound Sound, pitch float);	// Set pitch for a sound (1.0 is base level)
+#external SetSoundPan			void (sound Sound, pan float);		// Set pan for a sound (0.5 is center)
+#external WaveCopy				Wave (wave Wave);			// Copy a wave to a new wave
+#external WaveCrop				void (wave *Wave, initSample int, finalSample int);	// Crop a wave to defined samples range
+#external WaveFormat			void (wave *Wave, sampleRate int, sampleSize int, channels int);	// Convert wave data to desired format
+#external LoadWaveSamples		(*float) (wave Wave);		// Load samples data from wave as a 32bit float data array
+#external UnloadWaveSamples		void (samples *float);		// Unload samples data loaded with LoadWaveSamples()
+
+// Music management functions
+#external LoadMusicStream			Music (fileName *const char);		// Load music stream from file
+#external LoadMusicStreamFromMemory	Music (fileType *const char, data *const byte, dataSize int);	// Load music stream from data
+#external UnloadMusicStream			void (music Music);					// Unload music stream
+#external PlayMusicStream			void (music Music);					// Start music playing
+#external IsMusicStreamPlaying		int (music Music);					// Check if music is playing
+#external UpdateMusicStream			void (music Music);					// Updates buffers for music streaming
+#external StopMusicStream			void (music Music);					// Stop music playing
+#external PauseMusicStream			void (music Music);					// Pause music playing
+#external ResumeMusicStream			void (music Music);					// Resume playing paused music
+#external SeekMusicStream			void (music Music, position float);	// Seek music to a position (in seconds)
+#external SetMusicVolume			void (music Music, volume float);	// Set volume for music (1.0 is max level)
+#external SetMusicPitch				void (music Music, pitch float);	// Set pitch for a music (1.0 is base level)
+#external SetMusicPan				void (music Music, pan float);		// Set pan for a music (0.5 is center)
+#external GetMusicTimeLength		float (music Music);				// Get music time length (in seconds)
+#external GetMusicTimePlayed		float (music Music);				// Get current music time played (in seconds)
+
+// AudioStream management functions
+#external LoadAudioStream					AudioStream (sampleRate uint, sampleSize uint, channels uint);	// Load audio stream (to stream raw audio pcm data)
+#external UnloadAudioStream					void (stream AudioStream);			// Unload audio stream and free memory
+#external UpdateAudioStream					void (stream AudioStream, data *const void, frameCount int);	// Update audio stream buffers with data
+#external IsAudioStreamProcessed			int (stream AudioStream);			// Check if any audio stream buffers requires refill
+#external PlayAudioStream					void (stream AudioStream);			// Play audio stream
+#external PauseAudioStream					void (stream AudioStream);			// Pause audio stream
+#external ResumeAudioStream					void (stream AudioStream);			// Resume audio stream
+#external IsAudioStreamPlaying				int (stream AudioStream);			// Check if audio stream is playing
+#external StopAudioStream					void (stream AudioStream);			// Stop audio stream
+#external SetAudioStreamVolume				void (stream AudioStream, volume float);	// Set volume for audio stream (1.0 is max level)
+#external SetAudioStreamPitch				void (stream AudioStream, pitch float);		// Set pitch for audio stream (1.0 is base level)
+#external SetAudioStreamPan					void (stream AudioStream, pan float);		// Set pan for audio stream (0.5 is centered)
+#external SetAudioStreamBufferSizeDefault	void (size int);					// Default size for new audio streams
+#external SetAudioStreamCallback			void (stream AudioStream, callback AudioCallback);	// Audio thread callback to request new data
+
+#external AttachAudioStreamProcessor	void (stream AudioStream, processor AudioCallback);	// Attach audio stream processor to stream
+#external DetachAudioStreamProcessor	void (stream AudioStream, processor AudioCallback);	// Detach audio stream processor from stream
+
+#type AudioCallback		*void (bufferData *void, frames uint);
+

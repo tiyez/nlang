@@ -3,12 +3,13 @@
 /*
 	token format:
 
-	2 byte: token length (0 - 65535)
+	2 byte: token value length (0 - 65535)
 	1 byte: token offset (0 - 255)
 	1 byte: token type (enum token)
 	n byte: token value        <- token pointer
 	1 byte: null terminator
-	2 byte: token length (0 - 65535, same as first byte)
+	// todo - n byte: alignment 4 bytes
+	2 byte: token value length (0 - 65535, has the same as first length)
 
 */
 #define Token(name) Token_##name
@@ -19,9 +20,15 @@
 /* 
 	token page format
 
-	token link: 2 pointers: 1. pointer to next page, 2. pointer to last token from prev page
+	token link: 2 pointers
+		1. pointer to next page,
+		2. pointer to last token from prev page.
 	content tokens
-	token link: 3 pointers: 1. pointer to next page, 2. pointer to this page. 3. size of this page
+	token link: 4 pointers
+		1. pointer to next page,
+		2. pointer to this page,
+		3. size of this page.
+		4. capacity of this page.
 
 */
 #define Token_Page_Header_Size Calc_Token_Size (sizeof (void *) * 2)
@@ -279,18 +286,25 @@ int		push_string_token (struct tokenizer *tokenizer, int offset, const char *str
 	if (push_at_existing && tokenizer->current && tokenizer->current[-1] == Token (string)) {
 		int		old_length;
 		char	*memory;
+		int		string_offset;
 
 		old_length = get_token_length (tokenizer->current);
-		offset = get_token_offset (tokenizer->current);
-		memory = malloc (old_length + length);
+		string_offset = get_token_offset (tokenizer->current);
+		memory = malloc (old_length);
 		memcpy (memory, tokenizer->current, old_length);
 		revert_token (tokenizer);
-		if ((success = prepare_tokenizer (tokenizer, Calc_Token_Size (length + old_length)))) {
-			push_token_header (tokenizer, length + old_length, offset, Token (string));
+		if ((success = prepare_tokenizer (tokenizer, Calc_Token_Size (length + old_length + offset)))) {
+			int		spaces = 0;
+
+			push_token_header (tokenizer, length + old_length + offset, string_offset, Token (string));
 			tokenizer->current = tokenizer->data + tokenizer->size;
 			push_tokenizer_bytes (tokenizer, memory, old_length);
+			while (spaces < offset) {
+				push_tokenizer_byte (tokenizer, ' ');
+				spaces += 1;
+			}
 			push_tokenizer_bytes (tokenizer, string, length);
-			push_token_footer (tokenizer, length + old_length);
+			push_token_footer (tokenizer, length + old_length + offset);
 			Assert (get_token_length (tokenizer->current) >= 0);
 		}
 		free (memory);
@@ -623,7 +637,7 @@ int		make_token (struct tokenizer *tokenizer, struct token_state *state, const c
 		content += 1;
 	}
 	if (!*content || !success) {
-	} else if (isalpha (*content) || *content == '_') {
+	} else if ((isalpha (*content) && content[1] != '"') || *content == '_') {
 		const char	*start = content;
 
 		do {
@@ -666,12 +680,24 @@ int		make_token (struct tokenizer *tokenizer, struct token_state *state, const c
 #if Tokenizer__Is_Preprocessor && Tokenizer__Is_Include_Path_Special_Token
 		|| (state->its_include && *content == '<')
 #endif
+		|| (*content == 'E' && content[1] == '"')
 		) {
 		char	buffer_memory[256], *buffer = buffer_memory;
-		char	end_symbol = (*content == '<' ? '>' : *content);
+		char	end_symbol;
 		int		pushed = 0;
+		int		is_escape;
 		const char	*start;
 
+		is_escape = *content != 'E';
+		if (*content == 'E') {
+			content += 1;
+		}
+		end_symbol = (*content == '<' ? '>' : *content);
+#if Tokenizer__Is_Preprocessor && Tokenizer__Is_Include_Path_Special_Token
+		if (is_escape && state->its_include) {
+			is_escape = 0;
+		}
+#endif
 		start = content;
 		content += 1;
 		while (*content && *content != end_symbol && success) {
@@ -684,11 +710,7 @@ int		make_token (struct tokenizer *tokenizer, struct token_state *state, const c
 				}
 			}
 			int	is_forbidden_newline = (*content == '\n');
-			if (*content == '\\'
-#if Tokenizer__Is_Preprocessor && Tokenizer__Is_Include_Path_Special_Token
-				&& !state->its_include
-#endif
-				) {
+			if (is_escape && *content == '\\') {
 				is_forbidden_newline = is_forbidden_newline || (content[1] == '\n');
 				*buffer++ = escape_symbol (&content);
 			} else {
@@ -723,6 +745,8 @@ int		make_token (struct tokenizer *tokenizer, struct token_state *state, const c
 		state->its_include = 0;
 		state->its_implement = 0;
 #endif
+	} else if (isalpha (*content)) {
+		content += 1;
 	} else {
 		static const char	*const strings[] = {
 			"++", "+=", "--", "-=", "->", "...", "!=", "*=", "&&", "&=", "/=", "%=", "<=", "<<=", "<<", ">=", ">>=", ">>", "^=", "|=", "||", "==", "##",
